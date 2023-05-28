@@ -18,6 +18,9 @@ Here, we propose to manipulate the latent prosody space using light-supervision 
 
 # FastSpeech 2 - PyTorch Implementation
 
+The base code for the project is clone from: https://github.com/ming024/FastSpeech2
+---
+
 This is a PyTorch implementation of Microsoft's text-to-speech system [**FastSpeech 2: Fast and High-Quality End-to-End Text to Speech**](https://arxiv.org/abs/2006.04558v1). 
 This project is based on [xcmyz's implementation](https://github.com/xcmyz/FastSpeech) of FastSpeech. Feel free to use/modify the code.
 
