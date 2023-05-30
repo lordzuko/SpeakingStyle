@@ -6,15 +6,15 @@ Many propose to jointly train a reference encoder to model a latent representati
 
 Here, we propose to manipulate the latent prosody space using light-supervision from human annotators. Such strategies have already been proposed for speaker-modelling [5, 6] and speaker-adaptation [9] but not for speaking-style modelling. To achieve this we suggest to re-embed synthesised utterances that human annotators have tuned acoustically to match a target speaking style. After re-embedding the annotated utterances we aim to tune a fixed bank of style tokens [2]. This could not only further understanding the latent prosody space but also align it with human perception improving the quality of style generation.
 
-[1] [Towards end-to-end prosody transfer for expressive speech synthesis with tacotron](http://proceedings.mlr.press/v80/skerry-ryan18a.html)
-[2] [Style tokens: Unsupervised style modeling, control and transfer in end-to-end speech synthesis](http://proceedings.mlr.press/v80/wang18h.html?ref=https://githubhelp.com)
-[3] [Daft-exprt: Robust prosody transfer across speakers for expressive speech synthesis](https://arxiv.org/abs/2108.02271)
-[4] [Copycat: Many-to-many fine-grained prosody transfer for neural text-to-speech](https://arxiv.org/abs/2004.14617)
-[5] [Perceptual-similarity-aware deep speaker representation learning for multi-speaker generative modeling](https://ieeexplore.ieee.org/iel7/6570655/9289074/09354556.pdf)
-[6] [DNN-based Speaker Embedding Using Subjective Inter-speaker Similarity for Multi-speaker Modeling in Speech Synthesis](https://arxiv.org/pdf/1907.08294)
-[7] [Fastspeech: Fast, robust and controllable text to speech](https://proceedings.neurips.cc/paper/2019/hash/f63f65b503e22cb970527f23c9ad7db1-Abstract.html)
-[8] [Effective use of variational embedding capacity in expressive end-to-end speech synthesis](https://arxiv.org/abs/1906.03402)
-[9] [Human-in-the-loop Speaker Adaptation for DNN-based Multi-speaker TTS](https://arxiv.org/abs/2206.10256)
+* [1] [Towards end-to-end prosody transfer for expressive speech synthesis with tacotron](http://proceedings.mlr.press/v80/skerry-ryan18a.html)
+* [2] [Style tokens: Unsupervised style modeling, control and transfer in end-to-end speech synthesis](http://proceedings.mlr.press/v80/wang18h.html?ref=https://githubhelp.com)
+* [3] [Daft-exprt: Robust prosody transfer across speakers for expressive speech synthesis](https://arxiv.org/abs/2108.02271)
+* [4] [Copycat: Many-to-many fine-grained prosody transfer for neural text-to-speech](https://arxiv.org/abs/2004.14617)
+* [5] [Perceptual-similarity-aware deep speaker representation learning for multi-speaker generative modeling](https://ieeexplore.ieee.org/iel7/6570655/9289074/09354556.pdf)
+* [6] [DNN-based Speaker Embedding Using Subjective Inter-speaker Similarity for Multi-speaker Modeling in Speech Synthesis](https://arxiv.org/pdf/1907.08294)
+* [7] [Fastspeech: Fast, robust and controllable text to speech](https://proceedings.neurips.cc/paper/2019/hash/f63f65b503e22cb970527f23c9ad7db1-Abstract.html)
+* [8] [Effective use of variational embedding capacity in expressive end-to-end speech synthesis](https://arxiv.org/abs/1906.03402)
+* [9] [Human-in-the-loop Speaker Adaptation for DNN-based Multi-speaker TTS](https://arxiv.org/abs/2206.10256)
 
 # FastSpeech 2 - PyTorch Implementation
 
