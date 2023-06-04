@@ -1,10 +1,10 @@
 dataset: "LJSpeech"
 
 path:
-  corpus_path: "/home/ming/Data/LJSpeech-1.1"
+  corpus_path: "/home/s1945124/work/FastSpeech2/data/LJSpeech-1.1"
   lexicon_path: "lexicon/librispeech-lexicon.txt"
-  raw_path: "./raw_data/LJSpeech"
-  preprocessed_path: "./preprocessed_data/LJSpeech"
+  raw_path: "/home/s1945124/work/FastSpeech2/data/raw_data/LJSpeech"
+  preprocessed_path: "/home/s1945124/work/FastSpeech2/data/preprocessed_data/LJSpeech"
 
 preprocessing:
   val_size: 512
