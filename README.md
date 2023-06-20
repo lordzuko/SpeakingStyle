@@ -124,6 +124,11 @@ or
 ```
 ./montreal-forced-aligner/bin/mfa_train_and_align raw_data/LJSpeech/ lexicon/librispeech-lexicon.txt preprocessed_data/LJSpeech
 ```
+or 
+With multiprocessing for single speaker data
+```
+mfa train /scratch/space1/tc046/lordzuko/work/data/raw_data/BC2013/ lexicon/librispeech-lexicon.txt /scratch/space1/tc046/lordzuko/work/data/preprocessed_data/BC2013/bc_align.model --output_directory /scratch/space1/tc046/lordzuko/work/data/preprocessed_data/BC2013/TextGrid/ --single_speaker --num_jobs 40  --use_mp --temporary_directory /scratch/space1/tc046/lordzuko/work/data/tmp/
+```
 
 to align the corpus and then run the preprocessing script.
 ```

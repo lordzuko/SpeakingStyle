@@ -1,4 +1,5 @@
 import re
+from tqdm import tqdm
 import argparse
 from string import punctuation
 
@@ -88,7 +89,7 @@ def synthesize(model, step, configs, vocoder, batchs, control_values):
     preprocess_config, model_config, train_config = configs
     pitch_control, energy_control, duration_control = control_values
 
-    for batch in batchs:
+    for batch in tqdm(batchs, total=len(batchs), desc="batches:> "):
         batch = to_device(batch, device)
         with torch.no_grad():
             # Forward
@@ -185,11 +186,14 @@ if __name__ == "__main__":
     configs = (preprocess_config, model_config, train_config)
 
     # Get model
+    print("Loading Model...")
     model = get_model(args, configs, device, train=False)
-
+    print("Model Loaded")
     # Load vocoder
+    print("Loading Vocoder...")
     vocoder = get_vocoder(model_config, device)
-
+    print("Vocoder Loaded")
+    
     # Preprocess texts
     if args.mode == "batch":
         # Get dataset
@@ -209,6 +213,6 @@ if __name__ == "__main__":
         text_lens = np.array([len(texts[0])])
         batchs = [(ids, raw_texts, speakers, texts, text_lens, max(text_lens))]
 
-    control_values = args.pitch_control, args.energy_control, args.duration_control
-
+    control_values = args.pitch_control, args.energy_control, args.duration_control        
+    print("Synthesizing ...")
     synthesize(model, args.restore_step, configs, vocoder, batchs, control_values)
