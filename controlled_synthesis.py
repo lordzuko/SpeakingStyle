@@ -18,6 +18,8 @@ from utils.tools import to_device, expand
 from dataset import TextDataset
 from text import text_to_sequence
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 def read_lexicon(lex_path):
     lexicon = {}
     with open(lex_path) as f:
@@ -172,11 +174,12 @@ def preprocess_single(text, lexicon, g2p, args, preprocess_config, fine_control=
         control_values = args.pitch_control, args.energy_control, args.duration_control
     return control_values, batchs
 
-def synthesize_single(model, configs, lexicon, vocoder, fine_control={})
+def synthesize_single(text, model, configs, vocoder, args, fine_control={}):
     g2p = G2p()
+    preprocess_config, _, _ = configs
     lexicon = read_lexicon(preprocess_config["path"]["lexicon_path"])
-    control_values, batchs = preprocess_single(text, lexicon, g2p, args, fine_control)
-    synthesize(model, configs, vocoder, batchs, control_values)
+    control_values, batchs = preprocess_single(text, lexicon, g2p, args, preprocess_config, fine_control)
+    return synthesize(model, configs, vocoder, batchs, control_values)
 
 
 
