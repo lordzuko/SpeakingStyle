@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from transformer import Encoder, Decoder, PostNet
-from .modules import VarianceAdaptor
+from .modules import VarianceAdaptor, ControlledVarianceAdapter
 from utils.tools import get_mask_from_lengths
 
 
@@ -16,9 +16,11 @@ class FastSpeech2(nn.Module):
     def __init__(self, preprocess_config, model_config):
         super(FastSpeech2, self).__init__()
         self.model_config = model_config
-
         self.encoder = Encoder(model_config)
-        self.variance_adaptor = VarianceAdaptor(preprocess_config, model_config)
+        if self.model_config["control"]["active"]:
+            self.variance_adaptor = ControlledVarianceAdapter(preprocess_config, model_config)
+        else:
+            self.variance_adaptor = VarianceAdaptor(preprocess_config, model_config)
         self.decoder = Decoder(model_config)
         self.mel_linear = nn.Linear(
             model_config["transformer"]["decoder_hidden"],

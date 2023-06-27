@@ -84,7 +84,8 @@ def vocoder_infer(mels, vocoder, model_config, preprocess_config, lengths=None):
             wavs = vocoder.inverse(mels / np.log(10))
         elif name == "HiFi-GAN":
             wavs = vocoder(mels).squeeze(1)
-
+        #TODO: Add inference using griffin-lim here
+        
     wavs = (
         wavs.cpu().numpy()
         * preprocess_config["preprocessing"]["audio"]["max_wav_value"]

@@ -294,3 +294,115 @@ class Conv(nn.Module):
         x = x.contiguous().transpose(1, 2)
 
         return x
+
+
+class ControlledVarianceAdapter(VarianceAdaptor):
+    
+    def __init__(self, preprocess_config, model_config):
+        super(ControlledVarianceAdapter, self).__init__(preprocess_config, model_config)
+        
+    def get_pitch_embedding(self, x, target, mask, control):
+        prediction = self.pitch_predictor(x, mask)
+        
+        if target is not None:
+            embedding = self.pitch_embedding(torch.bucketize(target, self.pitch_bins))
+        else:
+            if isinstance(control, list):
+                control = torch.from_numpy(np.array(control)).to(device)
+                prediction = prediction * control
+            else:
+                prediction = prediction * control
+            
+            embedding = self.pitch_embedding(
+                torch.bucketize(prediction, self.pitch_bins)
+            )
+        print(f"Pitch: {prediction} \n{prediction.shape}")
+        return prediction, embedding
+
+    def get_energy_embedding(self, x, target, mask, control):
+        prediction = self.energy_predictor(x, mask)
+        
+        if target is not None:
+            embedding = self.energy_embedding(torch.bucketize(target, self.energy_bins))
+        else:
+            if isinstance(control, list):
+                control = torch.from_numpy(np.array(control)).to(device)
+                prediction = prediction * control
+            else:
+                prediction = prediction * control
+
+            embedding = self.energy_embedding(
+                torch.bucketize(prediction, self.energy_bins)
+            )
+        print(f"Energy: {prediction} \n{prediction.shape}")
+        return prediction, embedding
+    
+    def forward(
+        self,
+        x,
+        src_mask,
+        mel_mask=None,
+        max_len=None,
+        pitch_target=None,
+        energy_target=None,
+        duration_target=None,
+        p_control=1.0,
+        e_control=1.0,
+        d_control=1.0,
+    ):
+
+        log_duration_prediction = self.duration_predictor(x, src_mask)
+        if self.pitch_feature_level == "phoneme_level":
+            pitch_prediction, pitch_embedding = self.get_pitch_embedding(
+                x, pitch_target, src_mask, p_control
+            )
+            x = x + pitch_embedding
+        if self.energy_feature_level == "phoneme_level":
+            energy_prediction, energy_embedding = self.get_energy_embedding(
+                x, energy_target, src_mask, e_control
+            )
+            x = x + energy_embedding
+
+        if duration_target is not None:
+            x, mel_len = self.length_regulator(x, duration_target, max_len)
+            duration_rounded = duration_target
+        else:
+
+            if isinstance(d_control, list):
+                d_control = torch.from_numpy(np.array(d_control)).to(device)
+                duration_rounded = torch.clamp(
+                    (torch.round(torch.exp(log_duration_prediction) - 1) * d_control),
+                    min=0,
+                )
+
+            else:
+                duration_rounded = torch.clamp(
+                    (torch.round(torch.exp(log_duration_prediction) - 1) * d_control),
+                    min=0,
+                )
+            
+            print(f"Duration: {duration_rounded}")
+            x, mel_len = self.length_regulator(x, duration_rounded, max_len)
+            mel_mask = get_mask_from_lengths(mel_len)
+
+        if self.pitch_feature_level == "frame_level":
+            pitch_prediction, pitch_embedding = self.get_pitch_embedding(
+                x, pitch_target, mel_mask, p_control
+            )
+            x = x + pitch_embedding
+        if self.energy_feature_level == "frame_level":
+            energy_prediction, energy_embedding = self.get_energy_embedding(
+                x, energy_target, mel_mask, e_control
+            )
+            x = x + energy_embedding
+
+        return (
+            x,
+            pitch_prediction,
+            energy_prediction,
+            log_duration_prediction,
+            duration_rounded,
+            mel_len,
+            mel_mask,
+        )
+    

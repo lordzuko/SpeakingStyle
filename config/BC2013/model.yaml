@@ -35,3 +35,8 @@ max_seq_len: 1000
 vocoder:
   model: "HiFi-GAN" # support 'HiFi-GAN', 'MelGAN'
   speaker: "LJSpeech" # support  'LJSpeech', 'universal'
+
+control:
+  active: True
+  level: "word" # support "word", "phone"
+

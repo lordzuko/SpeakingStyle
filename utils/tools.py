@@ -131,14 +131,15 @@ def synth_one_sample(targets, predictions, vocoder, model_config, preprocess_con
         stats = json.load(f)
         stats = stats["pitch"] + stats["energy"][:2]
 
-    fig = plot_mel(
-        [
-            (mel_prediction.cpu().numpy(), pitch, energy),
-            (mel_target.cpu().numpy(), pitch, energy),
-        ],
-        stats,
-        ["Synthetized Spectrogram", "Ground-Truth Spectrogram"],
-    )
+    if plot:
+        fig = plot_mel(
+            [
+                (mel_prediction.cpu().numpy(), pitch, energy),
+                (mel_target.cpu().numpy(), pitch, energy),
+            ],
+            stats,
+            ["Synthetized Spectrogram", "Ground-Truth Spectrogram"],
+        )
 
     if vocoder is not None:
         from .model import vocoder_infer
