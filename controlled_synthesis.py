@@ -164,7 +164,7 @@ def preprocess_single(text, lexicon, g2p, args, preprocess_config, fine_control=
         for i, x in enumerate(idxs):
             for _ in range(x):
                 energy_control.append(fine_control["energy"][0][i])
-                pitch_control.append(fine_control["pitch"][0][i])
+                pitch_control.append(fine_control["f0"][0][i])
                 duration_control.append(fine_control["duration"][0][i])
         print(energy_control)
         print(pitch_control)
