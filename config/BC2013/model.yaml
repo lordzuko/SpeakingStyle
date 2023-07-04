@@ -35,7 +35,9 @@ max_seq_len: 1000
 vocoder:
   model: "HiFi-GAN" # support 'HiFi-GAN', 'MelGAN'
   speaker: "LJSpeech" # support  'LJSpeech', 'universal'
-
+  model_path: "/work/tc046/tc046/lordzuko/work/SpeakingStyle/hifigan/generator_LJSpeech.pth.tar"
+  vocoder_config: "/work/tc046/tc046/lordzuko/work/SpeakingStyle/hifigan/config.json"
+  
 control:
   active: True
   level: "word" # support "word", "phone"
