@@ -23,18 +23,26 @@ class Preprocessor:
         self.hop_length = config["preprocessing"]["stft"]["hop_length"]
 
         assert config["preprocessing"]["pitch"]["feature"] in [
+            "word_level",
             "phoneme_level",
             "frame_level",
         ]
         assert config["preprocessing"]["energy"]["feature"] in [
+            "word_level",
             "phoneme_level",
             "frame_level",
         ]
         self.pitch_phoneme_averaging = (
             config["preprocessing"]["pitch"]["feature"] == "phoneme_level"
         )
+        self.pitch_word_averaging = (
+            config["preprocessing"]["pitch"]["feature"] == "word_level"
+        )
         self.energy_phoneme_averaging = (
             config["preprocessing"]["energy"]["feature"] == "phoneme_level"
+        )
+        self.energy_word_averaging = (
+            config["preprocessing"]["energy"]["feature"] == "word_level"
         )
 
         self.pitch_normalization = config["preprocessing"]["pitch"]["normalization"]
@@ -161,10 +169,13 @@ class Preprocessor:
 
         # Get alignments
         textgrid = tgt.io.read_textgrid(tg_path)
-        phone, duration, start, end = self.get_alignment(
-            textgrid.get_tier_by_name("words")
+        text_grid_unit = "words" if self.pitch_word_averaging else "phones"
+        
+        unit, duration, start, end = self.get_alignment(
+            textgrid.get_tier_by_name(text_grid_unit)
         )
-        text = "{" + " ".join(phone) + "}"
+        text = "{" + " ".join(unit) + "}"
+        
         if start >= end:
             return None
 
@@ -195,7 +206,7 @@ class Preprocessor:
         mel_spectrogram = mel_spectrogram[:, : sum(duration)]
         energy = energy[: sum(duration)]
 
-        if self.pitch_phoneme_averaging:
+        if self.pitch_phoneme_averaging or self.pitch_word_averaging:
             # perform linear interpolation
             nonzero_ids = np.where(pitch != 0)[0]
             interp_fn = interp1d(
@@ -206,7 +217,7 @@ class Preprocessor:
             )
             pitch = interp_fn(np.arange(0, len(pitch)))
 
-            # Phoneme-level average
+            # Phoneme/word-level average
             pos = 0
             for i, d in enumerate(duration):
                 if d > 0:
@@ -216,8 +227,8 @@ class Preprocessor:
                 pos += d
             pitch = pitch[: len(duration)]
 
-        if self.energy_phoneme_averaging:
-            # Phoneme-level average
+        if self.energy_phoneme_averaging or self.pitch_word_averaging:
+            # Phoneme/word-level average
             pos = 0
             for i, d in enumerate(duration):
                 if d > 0:
@@ -251,9 +262,15 @@ class Preprocessor:
         )
 
     def get_alignment(self, tier):
+        """
+        In this setting it can either be used for word
+        or phones from text grid; the sil_phones can
+        be treated the same for word, for word level processing.
+        It shouldn't be an issue; yet to confirm.
+        """
         sil_phones = ["sil", "sp", "spn"]
 
-        phones = []
+        units = []
         durations = []
         start_time = 0
         end_time = 0
@@ -262,7 +279,7 @@ class Preprocessor:
             s, e, p = t.start_time, t.end_time, t.text
 
             # Trim leading silences
-            if phones == []:
+            if units == []:
                 if p in sil_phones:
                     continue
                 else:
@@ -270,12 +287,12 @@ class Preprocessor:
 
             if p not in sil_phones:
                 # For ordinary phones
-                phones.append(p)
+                units.append(p)
                 end_time = e
-                end_idx = len(phones)
+                end_idx = len(units)
             else:
                 # For silent phones
-                phones.append(p)
+                units.append(p)
 
             durations.append(
                 int(
@@ -285,10 +302,10 @@ class Preprocessor:
             )
 
         # Trim tailing silences
-        phones = phones[:end_idx]
+        units = units[:end_idx]
         durations = durations[:end_idx]
 
-        return phones, durations, start_time, end_time
+        return units, durations, start_time, end_time
 
     def remove_outlier(self, values):
         values = np.array(values)
