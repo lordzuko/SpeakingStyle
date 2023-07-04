@@ -9,7 +9,7 @@
 #SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
 #SBATCh --nodes=1
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --output=/work/tc046/tc046/%u/work/SpeakingStyle/logs/slurm_logs/slurm-%A_output.out
 
 # get tunneling info

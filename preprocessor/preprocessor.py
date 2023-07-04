@@ -162,7 +162,7 @@ class Preprocessor:
         # Get alignments
         textgrid = tgt.io.read_textgrid(tg_path)
         phone, duration, start, end = self.get_alignment(
-            textgrid.get_tier_by_name("phones")
+            textgrid.get_tier_by_name("words")
         )
         text = "{" + " ".join(phone) + "}"
         if start >= end:
