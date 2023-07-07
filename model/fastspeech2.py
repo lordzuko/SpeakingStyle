@@ -71,7 +71,7 @@ class FastSpeech2(nn.Module):
             output = output + self.speaker_emb(speakers).unsqueeze(1).expand(
                 -1, max_src_len, -1
             )
-
+        # TODO: we can add reference encoding here; just as speaker_emb is added
         (
             output,
             p_predictions,

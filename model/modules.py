@@ -302,39 +302,55 @@ class ControlledVarianceAdapter(VarianceAdaptor):
         super(ControlledVarianceAdapter, self).__init__(preprocess_config, model_config)
         
     def get_pitch_embedding(self, x, target, mask, control):
-        prediction = self.pitch_predictor(x, mask)
+
+        if isinstance(control, float):
+            prediction = self.pitch_predictor(x, mask)
+            # print(f"FS2-1")
+        else:
+            control = torch.from_numpy(np.array(control)).to(device)
+            prediction = control
+            # print(f"FS2-2")
         
         if target is not None:
             embedding = self.pitch_embedding(torch.bucketize(target, self.pitch_bins))
         else:
-            if isinstance(control, list):
-                control = torch.from_numpy(np.array(control)).to(device)
+            # if isinstance(control, list):
+                
+            #     # prediction = prediction * control
+            #     prediction = control
+            # else:
+            if isinstance(control, float):
                 prediction = prediction * control
-            else:
-                prediction = prediction * control
+                # print(f"FS2-3")
             
             embedding = self.pitch_embedding(
                 torch.bucketize(prediction, self.pitch_bins)
             )
-        print(f"Pitch: {prediction} \n{prediction.shape}")
+        # print(f"FS2-Pitch: {prediction} \n{prediction.shape}")
         return prediction, embedding
 
     def get_energy_embedding(self, x, target, mask, control):
-        prediction = self.energy_predictor(x, mask)
+        
+        
+        if isinstance(control, float):
+            prediction = self.energy_predictor(x, mask)
+            # print(f"FS2-4")
+        else:
+            control = torch.from_numpy(np.array(control)).to(device)
+            prediction = control
+            # print(f"FS2-5")
         
         if target is not None:
             embedding = self.energy_embedding(torch.bucketize(target, self.energy_bins))
         else:
-            if isinstance(control, list):
-                control = torch.from_numpy(np.array(control)).to(device)
+            if isinstance(control, float):
                 prediction = prediction * control
-            else:
-                prediction = prediction * control
+                # print(f"FS2-6")
 
             embedding = self.energy_embedding(
                 torch.bucketize(prediction, self.energy_bins)
             )
-        print(f"Energy: {prediction} \n{prediction.shape}")
+        # print(f"FS2-Energy: {prediction} \n{prediction.shape}")
         return prediction, embedding
     
     def forward(
@@ -350,8 +366,12 @@ class ControlledVarianceAdapter(VarianceAdaptor):
         e_control=1.0,
         d_control=1.0,
     ):
-
-        log_duration_prediction = self.duration_predictor(x, src_mask)
+        print("max len:", max_len)
+        if not isinstance(d_control, float):
+            log_duration_prediction = None
+        else:
+            log_duration_prediction = self.duration_predictor(x, src_mask)
+        
         if self.pitch_feature_level == "phoneme_level":
             pitch_prediction, pitch_embedding = self.get_pitch_embedding(
                 x, pitch_target, src_mask, p_control
@@ -367,21 +387,18 @@ class ControlledVarianceAdapter(VarianceAdaptor):
             x, mel_len = self.length_regulator(x, duration_target, max_len)
             duration_rounded = duration_target
         else:
-
-            if isinstance(d_control, list):
-                d_control = torch.from_numpy(np.array(d_control)).to(device)
-                duration_rounded = torch.clamp(
-                    (torch.round(torch.exp(log_duration_prediction) - 1) * d_control),
-                    min=0,
-                )
+            if not isinstance(d_control, float):
+                duration_rounded = torch.from_numpy(np.array(d_control)).to(device)
+                # print(f"FS2-7")
 
             else:
                 duration_rounded = torch.clamp(
                     (torch.round(torch.exp(log_duration_prediction) - 1) * d_control),
                     min=0,
                 )
+                # print(f"FS2-8")
             
-            print(f"Duration: {duration_rounded}")
+            # print(f"FS2-Duration: {duration_rounded}")
             x, mel_len = self.length_regulator(x, duration_rounded, max_len)
             mel_mask = get_mask_from_lengths(mel_len)
 

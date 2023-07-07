@@ -4,7 +4,6 @@ from tqdm import tqdm
 import argparse
 from string import punctuation
 import json
-
 from scipy.io import wavfile
 import torch
 import yaml
@@ -63,10 +62,10 @@ def preprocess_english(text, lexicon, g2p, preprocess_config):
     phones = re.sub(r"\{[^\w\s]?\}", "{sp}", phones)
     phones = phones.replace("}{", " ")
     words = [w for w in words if w != " "]
-    print("Raw Text Sequence: {}".format(text))
-    print("Phoneme Sequence: {}".format(phones))
-    print("Words: {}".format(words))
-    print("Idx: {}".format(idx))
+    # print("Raw Text Sequence: {}".format(text))
+    # print("Phoneme Sequence: {}".format(phones))
+    # print("Words: {}".format(words))
+    # print("Idx: {}".format(idx))
     sequence = np.array(
         text_to_sequence(
             phones, preprocess_config["preprocessing"]["text"]["text_cleaners"]
@@ -125,7 +124,7 @@ def synthesize(model, configs, vocoder, batchs, control_values):
     """
     preprocess_config, model_config, _ = configs
     pitch_control, energy_control, duration_control = control_values
-
+    print("Controlled-synthesis-duration:", duration_control)
     batch = to_device(batchs[0], device)
     with torch.no_grad():
         # Forward
@@ -135,11 +134,12 @@ def synthesize(model, configs, vocoder, batchs, control_values):
             e_control=energy_control,
             d_control=duration_control
         )
+
         wav_pred = synth_sample(output, vocoder, model_config, preprocess_config)
         # sampling_rate = preprocess_config["preprocessing"]["audio"]["sampling_rate"]
         # wavfile.write(os.path.join("./", "{}.wav".format(basename)), sampling_rate, wav_pred)
     
-    return wav_pred
+    return output, wav_pred
 
 def preprocess_single(text, lexicon, g2p, args, preprocess_config, fine_control={}):
     """
@@ -154,22 +154,8 @@ def preprocess_single(text, lexicon, g2p, args, preprocess_config, fine_control=
 
     text_lens = np.array([len(texts[0])])
     batchs = [(ids, raw_texts, speakers, texts, text_lens, max(text_lens))]
-    print(batchs)
-    print(words)
-    print(idxs)
     if fine_control:
-        energy_control = []
-        duration_control = []
-        pitch_control = []
-        for i, x in enumerate(idxs):
-            for _ in range(x):
-                energy_control.append(fine_control["energy"][0][i])
-                pitch_control.append(fine_control["f0"][0][i])
-                duration_control.append(fine_control["duration"][0][i])
-        print(energy_control)
-        print(pitch_control)
-        print(duration_control)
-        control_values = pitch_control, energy_control, duration_control
+        control_values = fine_control["p"], fine_control["e"], fine_control["d"]
     else:
         control_values = args.pitch_control, args.energy_control, args.duration_control
     return control_values, batchs
@@ -284,9 +270,6 @@ if __name__ == "__main__":
         speakers = np.array([args.speaker_id])
         if preprocess_config["preprocessing"]["text"]["language"] == "en":
             texts = np.array([preprocess_english(args.text, preprocess_config)])
-        elif preprocess_config["preprocessing"]["text"]["language"] == "zh":
-            texts = np.array([preprocess_mandarin(args.text, preprocess_config)])
-        text_lens = np.array([len(texts[0])])
         batchs = [(ids, raw_texts, speakers, texts, text_lens, max(text_lens))]
 
     control_values = args.pitch_control, args.energy_control, args.duration_control        
