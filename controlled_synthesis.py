@@ -44,6 +44,8 @@ def preprocess_english(text, lexicon, g2p, preprocess_config):
                 "is" - 108, 146
                 "cool" - 116, 141, 117
     """
+    # sil_phones = ["sil", "sp", "spn"]
+    avoid = [" ", "" , "."]
     text = text.rstrip(punctuation)
     phones = []
     words = re.split(r"([,;.\-\?\!\s+])", text)
@@ -53,15 +55,15 @@ def preprocess_english(text, lexicon, g2p, preprocess_config):
         if w.lower() in lexicon:
             phones += lexicon[w.lower()]
         else:
-            phones += list(filter(lambda p: p != " ", g2p(w)))
-        if w != " ":
+            # phones += list(filter(lambda p: p != " ", g2p(w)))
+            phones += list(filter(lambda p: p not in avoid, g2p(w)))
+        if w not in avoid:
             c_new_phones = len(phones) - len_before
             idx.append(c_new_phones)
             
     phones = "{" + "}{".join(phones) + "}"
-    phones = re.sub(r"\{[^\w\s]?\}", "{sp}", phones)
     phones = phones.replace("}{", " ")
-    words = [w for w in words if w != " "]
+    words = [w for w in words if w not in avoid]
     # print("Raw Text Sequence: {}".format(text))
     # print("Phoneme Sequence: {}".format(phones))
     # print("Words: {}".format(words))
