@@ -15,7 +15,10 @@ from pypinyin import pinyin, Style
 from .utils.model import get_model, get_vocoder, vocoder_infer
 from .utils.tools import to_device, expand
 from .dataset import TextDataset
-from .text import text_to_sequence
+from .text import text_to_sequence_extended
+from .text.symbols import symbols
+from .text import _should_keep_symbol
+from .text import _clean_text
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -47,33 +50,50 @@ def preprocess_english(text, lexicon, g2p, preprocess_config):
     # sil_phones = ["sil", "sp", "spn"]
     avoid = [" ", "" , "."]
     text = text.rstrip(punctuation)
+    text = _clean_text(text, preprocess_config["preprocessing"]["text"]["text_cleaners"])
+    print(text)
     phones = []
-    words = re.split(r"([,;.\-\?\!\s+])", text)
+    _words = re.split(r"([\",;.\-\?\!\s+])", text)
     idx = []
-    for w in words:
+    words = []
+    for w in _words:
+        # if w not in symbols and len(w)==1:
+        #     continue
+        if w in avoid:
+            continue
+        if len(w) == 1 and not _should_keep_symbol(w):
+            continue
+        
         len_before = len(phones)
         if w.lower() in lexicon:
             phones += lexicon[w.lower()]
         else:
             # phones += list(filter(lambda p: p != " ", g2p(w)))
-            phones += list(filter(lambda p: p not in avoid, g2p(w)))
-        if w not in avoid:
-            c_new_phones = len(phones) - len_before
+            # phones += list(filter(lambda p: p not in avoid, g2p(w)))
+            phones += list(filter(lambda p: _should_keep_symbol(p), g2p(w)))
+        # if w not in avoid:
+        # print("---------")
+        # print('*w*: ',w)
+        # print("phones: ", phones)
+        c_new_phones = len(phones) - len_before
+        if c_new_phones:
+            words.append(w)
             idx.append(c_new_phones)
+        # print("new_phones: ", phones[len_before:len(phones)])
+        # print("---------")
             
     phones = "{" + "}{".join(phones) + "}"
     phones = phones.replace("}{", " ")
-    words = [w for w in words if w not in avoid]
-    # print("Raw Text Sequence: {}".format(text))
-    # print("Phoneme Sequence: {}".format(phones))
-    # print("Words: {}".format(words))
-    # print("Idx: {}".format(idx))
+    # words = [w for w in words if w not in symbols]
+    print(phones)
+    print(words)
+    print(idx)
     sequence = np.array(
-        text_to_sequence(
+        text_to_sequence_extended(
             phones, preprocess_config["preprocessing"]["text"]["text_cleaners"]
         )
     )
-
+    print(len(phones),len(sequence), len(words))
     return np.array(sequence), words, idx
 
 def setup_stats(preprocess_config):
