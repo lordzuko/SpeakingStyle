@@ -123,8 +123,8 @@ def _arpabet_to_sequence_extended(text):
             seq.append(s)
         elif s in list(_special):
             seq.append(s)
-        elif s in list(_letters):
-            seq.append(s)
+        # elif s in list(_letters):
+        #     seq.append(s)
         else:
             seq.append("@" + s)
             
@@ -133,3 +133,6 @@ def _arpabet_to_sequence_extended(text):
 
 def _should_keep_symbol(s):
     return s in _symbol_to_id and s != "_" and s != "~"
+
+def _should_keep_symbol_extended(s):
+    return s in _symbol_to_id and s not in _punctuation + _special

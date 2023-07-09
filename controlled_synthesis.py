@@ -15,9 +15,10 @@ from pypinyin import pinyin, Style
 from .utils.model import get_model, get_vocoder, vocoder_infer
 from .utils.tools import to_device, expand
 from .dataset import TextDataset
-from .text import text_to_sequence_extended
+# from .text import text_to_sequence_extended
+from .text import text_to_sequence
 from .text.symbols import symbols
-from .text import _should_keep_symbol
+from .text import _should_keep_symbol_extended
 from .text import _clean_text
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -61,7 +62,7 @@ def preprocess_english(text, lexicon, g2p, preprocess_config):
         #     continue
         if w in avoid:
             continue
-        if len(w) == 1 and not _should_keep_symbol(w):
+        if len(w) == 1 and not _should_keep_symbol_extended(w):
             continue
         
         len_before = len(phones)
@@ -70,7 +71,7 @@ def preprocess_english(text, lexicon, g2p, preprocess_config):
         else:
             # phones += list(filter(lambda p: p != " ", g2p(w)))
             # phones += list(filter(lambda p: p not in avoid, g2p(w)))
-            phones += list(filter(lambda p: _should_keep_symbol(p), g2p(w)))
+            phones += list(filter(lambda p: _should_keep_symbol_extended(p), g2p(w)))
         # if w not in avoid:
         # print("---------")
         # print('*w*: ',w)
@@ -89,7 +90,7 @@ def preprocess_english(text, lexicon, g2p, preprocess_config):
     print(words)
     print(idx)
     sequence = np.array(
-        text_to_sequence_extended(
+        text_to_sequence(
             phones, preprocess_config["preprocessing"]["text"]["text_cleaners"]
         )
     )
