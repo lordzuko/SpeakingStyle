@@ -3,19 +3,20 @@ import json
 
 import torch
 import numpy as np
+import streamlit as st
 
 from .. import hifigan
 from ..model import FastSpeech2, ScheduledOptim
 
+@st.cache_resource(show_spinner="Loading Model..")
+def get_model(_args, _configs, _device, _train=False):
+    (preprocess_config, model_config, train_config) = _configs
 
-def get_model(args, configs, device, train=False):
-    (preprocess_config, model_config, train_config) = configs
-
-    model = FastSpeech2(preprocess_config, model_config).to(device)
-    if args.restore_step:
+    model = FastSpeech2(preprocess_config, model_config).to(_device)
+    if _args.restore_step:
         ckpt_path = os.path.join(
             train_config["path"]["ckpt_path"],
-            "{}.pth.tar".format(args.restore_step),
+            "{}.pth.tar".format(_args.restore_step),
         )
         if torch.cuda.is_available():
             ckpt = torch.load(ckpt_path)
@@ -23,11 +24,11 @@ def get_model(args, configs, device, train=False):
             ckpt = torch.load(ckpt_path, map_location=torch.device('cpu'))
         model.load_state_dict(ckpt["model"])
 
-    if train:
+    if _train:
         scheduled_optim = ScheduledOptim(
-            model, train_config, model_config, args.restore_step
+            model, train_config, model_config, _args.restore_step
         )
-        if args.restore_step:
+        if _args.restore_step:
             scheduled_optim.load_state_dict(ckpt["optimizer"])
         model.train()
         return model, scheduled_optim
@@ -41,12 +42,12 @@ def get_param_num(model):
     num_param = sum(param.numel() for param in model.parameters())
     return num_param
 
-
-def get_vocoder(config, device):
-    name = config["vocoder"]["model"]
-    speaker = config["vocoder"]["speaker"]
-    vocoder_model_path = config["vocoder"]["model_path"]
-    vocoder_config_path = config["vocoder"]["vocoder_config"]
+@st.cache_resource(show_spinner="Loading Vocoder..")
+def get_vocoder(_config, _device):
+    name = _config["vocoder"]["model"]
+    speaker = _config["vocoder"]["speaker"]
+    vocoder_model_path = _config["vocoder"]["model_path"]
+    vocoder_config_path = _config["vocoder"]["vocoder_config"]
     if name == "MelGAN":
         if speaker == "LJSpeech":
             vocoder = torch.hub.load(
@@ -73,7 +74,7 @@ def get_vocoder(config, device):
         vocoder.load_state_dict(ckpt["generator"])
         vocoder.eval()
         vocoder.remove_weight_norm()
-        vocoder.to(device)
+        vocoder.to(_device)
 
     return vocoder
 
