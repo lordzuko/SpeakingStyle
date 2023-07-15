@@ -6,29 +6,35 @@ import numpy as np
 from torch.nn import functional as F
 
 from .SubLayers import MultiHeadAttention, PositionwiseFeedForward
+from model.blocks import FiLM
 
+class FFTBlock(nn.Module):
+    """ FFT Block """
 
-class FFTBlock(torch.nn.Module):
-    """FFT Block"""
-
-    def __init__(self, d_model, n_head, d_k, d_v, d_inner, kernel_size, dropout=0.1):
+    def __init__(self, d_model, n_head, d_k, d_v, d_inner, kernel_size, dropout=0.1, film=True):
         super(FFTBlock, self).__init__()
         self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
         self.pos_ffn = PositionwiseFeedForward(
             d_model, d_inner, kernel_size, dropout=dropout
         )
+        if film:
+            self.film = FiLM()
 
-    def forward(self, enc_input, mask=None, slf_attn_mask=None):
+    def forward(self, enc_input, gammas=None, betas=None, mask=None, slf_attn_mask=None):
         enc_output, enc_slf_attn = self.slf_attn(
             enc_input, enc_input, enc_input, mask=slf_attn_mask
         )
-        enc_output = enc_output.masked_fill(mask.unsqueeze(-1), 0)
+        if mask is not None:
+            enc_output = enc_output.masked_fill(mask.unsqueeze(-1), 0)
 
         enc_output = self.pos_ffn(enc_output)
-        enc_output = enc_output.masked_fill(mask.unsqueeze(-1), 0)
+        if gammas is not None and betas is not None:
+            enc_output = self.film(enc_output, gammas, betas)
+
+        if mask is not None:
+            enc_output = enc_output.masked_fill(mask.unsqueeze(-1), 0)
 
         return enc_output, enc_slf_attn
-
 
 class ConvNorm(torch.nn.Module):
     def __init__(
@@ -41,6 +47,7 @@ class ConvNorm(torch.nn.Module):
         dilation=1,
         bias=True,
         w_init_gain="linear",
+        transform=False
     ):
         super(ConvNorm, self).__init__()
 
@@ -57,11 +64,15 @@ class ConvNorm(torch.nn.Module):
             dilation=dilation,
             bias=bias,
         )
+        self.transform = transform
+    def forward(self, x):
+        if self.transform:
+            x = x.contiguous().transpose(1, 2)
+        x = self.conv(x)
+        if self.transform:
+            x = x.contiguous().transpose(1, 2)
 
-    def forward(self, signal):
-        conv_signal = self.conv(signal)
-
-        return conv_signal
+        return x
 
 
 class PostNet(nn.Module):

@@ -1,10 +1,10 @@
 dataset: "BC2013"
 
 path:
-  corpus_path: "/work/tc046/tc046/lordzuko/data/blizzard_2013/BC2013_seg_v1"
+  corpus_path: "/work/tc046/tc046/lordzuko/data/blizzard_2013/BC2013"
   lexicon_path: "lexicon/librispeech-lexicon.txt"
   raw_path: "/scratch/space1/tc046/lordzuko/work/data/raw_data/BC2013"
-  preprocessed_path: "/scratch/space1/tc046/lordzuko/work/data/preprocessed_data/BC2013"
+  preprocessed_path: "/scratch/space1/tc046/lordzuko/work/data/preprocessed_data/BC2013_ref"
 
 preprocessing:
   val_size: 512

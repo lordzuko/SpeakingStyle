@@ -70,7 +70,7 @@ class Encoder(nn.Module):
             ]
         )
 
-    def forward(self, src_seq, mask, return_attns=False):
+    def forward(self, src_seq, mask, gammas=None, betas=None, return_attns=False):
 
         enc_slf_attn_list = []
         batch_size, max_len = src_seq.shape[0], src_seq.shape[1]
@@ -92,7 +92,7 @@ class Encoder(nn.Module):
 
         for enc_layer in self.layer_stack:
             enc_output, enc_slf_attn = enc_layer(
-                enc_output, mask=mask, slf_attn_mask=slf_attn_mask
+                enc_output, gammas=gammas, betas=betas, mask=mask, slf_attn_mask=slf_attn_mask
             )
             if return_attns:
                 enc_slf_attn_list += [enc_slf_attn]
@@ -136,7 +136,7 @@ class Decoder(nn.Module):
             ]
         )
 
-    def forward(self, enc_seq, mask, return_attns=False):
+    def forward(self, enc_seq, mask, gammas=None, betas=None, return_attns=False):
 
         dec_slf_attn_list = []
         batch_size, max_len = enc_seq.shape[0], enc_seq.shape[1]
@@ -163,7 +163,7 @@ class Decoder(nn.Module):
 
         for dec_layer in self.layer_stack:
             dec_output, dec_slf_attn = dec_layer(
-                dec_output, mask=mask, slf_attn_mask=slf_attn_mask
+                dec_output, gammas=gammas, betas=betas, mask=mask, slf_attn_mask=slf_attn_mask
             )
             if return_attns:
                 dec_slf_attn_list += [dec_slf_attn]
