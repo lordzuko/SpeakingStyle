@@ -1,5 +1,6 @@
 import os
 import json
+import yaml
 
 import torch
 import torch.nn.functional as F
@@ -7,6 +8,7 @@ import numpy as np
 import matplotlib
 from scipy.io import wavfile
 from matplotlib import pyplot as plt
+from sklearn.manifold import TSNE
 
 
 matplotlib.use("Agg")
@@ -15,8 +17,19 @@ matplotlib.use("Agg")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def get_configs_of(dataset):
+    config_dir = os.path.join("./config", dataset)
+    preprocess_config = yaml.load(open(
+        os.path.join(config_dir, "preprocess.yaml"), "r"), Loader=yaml.FullLoader)
+    model_config = yaml.load(open(
+        os.path.join(config_dir, "model.yaml"), "r"), Loader=yaml.FullLoader)
+    train_config = yaml.load(open(
+        os.path.join(config_dir, "train.yaml"), "r"), Loader=yaml.FullLoader)
+    return preprocess_config, model_config, train_config
+
+
 def to_device(data, device):
-    if len(data) == 12:
+    if len(data) == 15:
         (
             ids,
             raw_texts,
@@ -30,6 +43,9 @@ def to_device(data, device):
             pitches,
             energies,
             durations,
+            spker_embeds,
+            ref_pitches,
+            ref_energies,
         ) = data
 
         speakers = torch.from_numpy(speakers).long().to(device)
@@ -38,8 +54,12 @@ def to_device(data, device):
         mels = torch.from_numpy(mels).float().to(device)
         mel_lens = torch.from_numpy(mel_lens).to(device)
         pitches = torch.from_numpy(pitches).float().to(device)
+        ref_pitches = torch.from_numpy(ref_pitches).float().to(device)
         energies = torch.from_numpy(energies).to(device)
+        ref_energies = torch.from_numpy(ref_energies).to(device)
         durations = torch.from_numpy(durations).long().to(device)
+        if spker_embeds is not None:
+            spker_embeds = torch.from_numpy(spker_embeds).float().to(device)
 
         return (
             ids,
@@ -54,28 +74,70 @@ def to_device(data, device):
             pitches,
             energies,
             durations,
+            spker_embeds,
+            ref_pitches,
+            ref_energies,
         )
 
-    if len(data) == 6:
-        (ids, raw_texts, speakers, texts, src_lens, max_src_len) = data
+    if len(data) == 12:
+        (
+            ids,
+            raw_texts,
+            speakers,
+            texts,
+            src_lens,
+            max_src_len,
+            mels,
+            mel_lens,
+            max_mel_len,
+            spker_embeds,
+            ref_pitches,
+            ref_energies,
+        ) = data
 
         speakers = torch.from_numpy(speakers).long().to(device)
         texts = torch.from_numpy(texts).long().to(device)
         src_lens = torch.from_numpy(src_lens).to(device)
+        mels = torch.from_numpy(mels).float().to(device)
+        mel_lens = torch.from_numpy(mel_lens).to(device)
+        if spker_embeds is not None:
+            spker_embeds = torch.from_numpy(spker_embeds).float().to(device)
+        ref_pitches = torch.from_numpy(ref_pitches).float().to(device)
+        ref_energies = torch.from_numpy(ref_energies).to(device)
 
-        return (ids, raw_texts, speakers, texts, src_lens, max_src_len)
+        return (
+            ids,
+            raw_texts,
+            speakers,
+            texts,
+            src_lens,
+            max_src_len,
+            mels,
+            mel_lens,
+            max_mel_len,
+            spker_embeds,
+            ref_pitches,
+            ref_energies,
+        )
 
 
 def log(
-    logger, step=None, losses=None, fig=None, audio=None, sampling_rate=22050, tag=""
+    logger, step=None, losses=None, lr=None, lambdas=None, fig=None, audio=None, sampling_rate=22050, tag=""
 ):
     if losses is not None:
         logger.add_scalar("Loss/total_loss", losses[0], step)
         logger.add_scalar("Loss/mel_loss", losses[1], step)
-        logger.add_scalar("Loss/mel_postnet_loss", losses[2], step)
+        logger.add_scalar("Loss/adv_loss", losses[2], step)
         logger.add_scalar("Loss/pitch_loss", losses[3], step)
         logger.add_scalar("Loss/energy_loss", losses[4], step)
         logger.add_scalar("Loss/duration_loss", losses[5], step)
+
+    if lr is not None:
+        logger.add_scalar("Weight/learning_rate", lr, step)
+
+    if lambdas is not None:
+        logger.add_scalar("Weight/lambda_f", lambdas[0], step)
+        logger.add_scalar("Weight/lambda_a", lambdas[1], step)
 
     if fig is not None:
         logger.add_figure(tag, fig)
@@ -109,10 +171,11 @@ def expand(values, durations):
 def synth_one_sample(targets, predictions, vocoder, model_config, preprocess_config):
 
     basename = targets[0][0]
-    src_len = predictions[8][0].item()
-    mel_len = predictions[9][0].item()
+    src_len = predictions[9][0].item()
+    mel_len = predictions[10][0].item()
     mel_target = targets[6][0, :mel_len].detach().transpose(0, 1)
-    mel_prediction = predictions[1][0, :mel_len].detach().transpose(0, 1)
+    mel_prediction = predictions[0][0, :mel_len].detach().transpose(0, 1)
+    attention = predictions[1][0, :src_len, :mel_len].detach() # [seq_len, mel_len]
     duration = targets[11][0, :src_len].detach().cpu().numpy()
     if preprocess_config["preprocessing"]["pitch"]["feature"] == "phoneme_level":
         pitch = targets[9][0, :src_len].detach().cpu().numpy()
@@ -135,9 +198,11 @@ def synth_one_sample(targets, predictions, vocoder, model_config, preprocess_con
         [
             (mel_prediction.cpu().numpy(), pitch, energy),
             (mel_target.cpu().numpy(), pitch, energy),
+            attention.cpu().numpy(),
         ],
         stats,
-        ["Synthetized Spectrogram", "Ground-Truth Spectrogram"],
+        ["Synthetized Spectrogram", "Ground-Truth Spectrogram", "Gaussian Upsampling Alignment"],
+        attention=True,
     )
 
     if vocoder is not None:
@@ -161,25 +226,26 @@ def synth_one_sample(targets, predictions, vocoder, model_config, preprocess_con
     return fig, wav_reconstruction, wav_prediction, basename
 
 
-def synth_samples(targets, predictions, vocoder, model_config, preprocess_config, path, plot=False):
+def synth_samples(targets, predictions, vocoder, model_config, preprocess_config, path, args):
 
+    multi_speaker = model_config["multi_speaker"]
     basenames = targets[0]
     for i in range(len(predictions[0])):
         basename = basenames[i]
-        src_len = predictions[8][i].item()
-        mel_len = predictions[9][i].item()
-        mel_prediction = predictions[1][i, :mel_len].detach().transpose(0, 1)
-        duration = predictions[5][i, :src_len].detach().cpu().numpy()
+        src_len = predictions[9][i].item()
+        mel_len = predictions[10][i].item()
+        mel_prediction = predictions[0][i, :mel_len].detach().transpose(0, 1)
+        duration = predictions[6][i, :src_len].detach().cpu().numpy()
         if preprocess_config["preprocessing"]["pitch"]["feature"] == "phoneme_level":
-            pitch = predictions[2][i, :src_len].detach().cpu().numpy()
+            pitch = predictions[3][i, :src_len].detach().cpu().numpy()
             pitch = expand(pitch, duration)
         else:
-            pitch = predictions[2][i, :mel_len].detach().cpu().numpy()
+            pitch = predictions[3][i, :mel_len].detach().cpu().numpy()
         if preprocess_config["preprocessing"]["energy"]["feature"] == "phoneme_level":
-            energy = predictions[3][i, :src_len].detach().cpu().numpy()
+            energy = predictions[4][i, :src_len].detach().cpu().numpy()
             energy = expand(energy, duration)
         else:
-            energy = predictions[3][i, :mel_len].detach().cpu().numpy()
+            energy = predictions[4][i, :mel_len].detach().cpu().numpy()
 
         with open(
             os.path.join(preprocess_config["path"]["preprocessed_path"], "stats.json")
@@ -187,31 +253,35 @@ def synth_samples(targets, predictions, vocoder, model_config, preprocess_config
             stats = json.load(f)
             stats = stats["pitch"] + stats["energy"][:2]
 
-        if plot:
-            fig = plot_mel(
-                [
-                    (mel_prediction.cpu().numpy(), pitch, energy),
-                ],
-                stats,
-                ["Synthetized Spectrogram"],
-            )
-            plt.savefig(os.path.join(path, "{}.png".format(basename)))
-            plt.close()
+        fig = plot_mel(
+            [
+                (mel_prediction.cpu().numpy(), pitch, energy),
+            ],
+            stats,
+            ["Synthetized Spectrogram"],
+        )
+        plt.savefig(os.path.join(
+            path, str(args.restore_step), "{}_{}.png".format(basename, args.speaker_id)\
+                if multi_speaker and args.mode == "single" else "{}.png".format(basename)))
+        plt.close()
 
     from .model import vocoder_infer
 
-    mel_predictions = predictions[1].transpose(1, 2)
-    lengths = predictions[9] * preprocess_config["preprocessing"]["stft"]["hop_length"]
+    mel_predictions = predictions[0].transpose(1, 2)
+    lengths = predictions[10] * preprocess_config["preprocessing"]["stft"]["hop_length"]
     wav_predictions = vocoder_infer(
         mel_predictions, vocoder, model_config, preprocess_config, lengths=lengths
     )
 
     sampling_rate = preprocess_config["preprocessing"]["audio"]["sampling_rate"]
     for wav, basename in zip(wav_predictions, basenames):
-        wavfile.write(os.path.join(path, "{}.wav".format(basename)), sampling_rate, wav)
+        wavfile.write(os.path.join(
+            path, str(args.restore_step), "{}_{}.wav".format(basename, args.speaker_id)\
+                if multi_speaker and args.mode == "single" else "{}.wav".format(basename)),
+            sampling_rate, wav)
 
 
-def plot_mel(data, stats, titles):
+def plot_mel(data, stats, titles, attention=False):
     fig, axes = plt.subplots(len(data), 1, squeeze=False)
     if titles is None:
         titles = [None for i in range(len(data))]
@@ -225,6 +295,17 @@ def plot_mel(data, stats, titles):
         return ax
 
     for i in range(len(data)):
+        if i == len(data)-1 and attention:
+            im = axes[i][0].imshow(data[i], origin='lower', aspect='auto')
+            axes[i][0].set_xlabel('Audio timestep')
+            axes[i][0].set_ylabel('Text timestep')
+            axes[i][0].set_xlim(0, data[i].shape[1])
+            axes[i][0].set_ylim(0, data[i].shape[0])
+            axes[i][0].set_title(titles[i], fontsize="medium")
+            axes[i][0].tick_params(labelsize="x-small")
+            axes[i][0].set_anchor("W")
+            fig.colorbar(im, ax=axes[i][0])
+            break
         mel, pitch, energy = data[i]
         pitch = pitch * pitch_std + pitch_mean
         axes[i][0].imshow(mel, origin="lower")
@@ -235,7 +316,7 @@ def plot_mel(data, stats, titles):
         axes[i][0].set_anchor("W")
 
         ax1 = add_axis(fig, axes[i][0])
-        ax1.plot(pitch, color="tomato")
+        ax1.plot(pitch, color="tomato", linewidth=.7)
         ax1.set_xlim(0, mel.shape[1])
         ax1.set_ylim(0, pitch_max)
         ax1.set_ylabel("F0", color="tomato")
@@ -244,7 +325,7 @@ def plot_mel(data, stats, titles):
         )
 
         ax2 = add_axis(fig, axes[i][0])
-        ax2.plot(energy, color="darkviolet")
+        ax2.plot(energy, color="darkviolet", linewidth=.7)
         ax2.set_xlim(0, mel.shape[1])
         ax2.set_ylim(energy_min, energy_max)
         ax2.set_ylabel("Energy", color="darkviolet")
@@ -261,6 +342,27 @@ def plot_mel(data, stats, titles):
         )
 
     return fig
+
+
+def plot_embedding(out_dir, embedding, embedding_speaker_id, gender_dict, filename='embedding.png'):
+    colors = 'r','b'
+    labels = 'Female','Male'
+
+    data_x = embedding
+    data_y = np.array([gender_dict[spk_id] == 'M' for spk_id in embedding_speaker_id], dtype=np.int)
+    tsne_model = TSNE(n_components=2, random_state=0, init='random')
+    tsne_all_data = tsne_model.fit_transform(data_x)
+    tsne_all_y_data = data_y
+
+    plt.figure(figsize=(10,10))
+    for i, (c, label) in enumerate(zip(colors, labels)):
+        plt.scatter(tsne_all_data[tsne_all_y_data==i,0], tsne_all_data[tsne_all_y_data==i,1], c=c, label=label, alpha=0.5)
+
+    plt.grid(True)
+    plt.legend(loc='upper left')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, filename))
 
 
 def pad_1D(inputs, PAD=0):
