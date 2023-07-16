@@ -1,6 +1,5 @@
 import os
 import json
-import yaml
 
 import torch
 import torch.nn.functional as F
@@ -8,7 +7,6 @@ import numpy as np
 import matplotlib
 from scipy.io import wavfile
 from matplotlib import pyplot as plt
-from sklearn.manifold import TSNE
 
 
 matplotlib.use("Agg")
@@ -17,68 +15,7 @@ matplotlib.use("Agg")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def get_configs_of(dataset):
-    config_dir = os.path.join("./config", dataset)
-    preprocess_config = yaml.load(open(
-        os.path.join(config_dir, "preprocess.yaml"), "r"), Loader=yaml.FullLoader)
-    model_config = yaml.load(open(
-        os.path.join(config_dir, "model.yaml"), "r"), Loader=yaml.FullLoader)
-    train_config = yaml.load(open(
-        os.path.join(config_dir, "train.yaml"), "r"), Loader=yaml.FullLoader)
-    return preprocess_config, model_config, train_config
-
-
 def to_device(data, device):
-    if len(data) == 15:
-        (
-            ids,
-            raw_texts,
-            speakers,
-            texts,
-            src_lens,
-            max_src_len,
-            mels,
-            mel_lens,
-            max_mel_len,
-            pitches,
-            energies,
-            durations,
-            spker_embeds,
-            ref_pitches,
-            ref_energies,
-        ) = data
-
-        speakers = torch.from_numpy(speakers).long().to(device)
-        texts = torch.from_numpy(texts).long().to(device)
-        src_lens = torch.from_numpy(src_lens).to(device)
-        mels = torch.from_numpy(mels).float().to(device)
-        mel_lens = torch.from_numpy(mel_lens).to(device)
-        pitches = torch.from_numpy(pitches).float().to(device)
-        ref_pitches = torch.from_numpy(ref_pitches).float().to(device)
-        energies = torch.from_numpy(energies).to(device)
-        ref_energies = torch.from_numpy(ref_energies).to(device)
-        durations = torch.from_numpy(durations).long().to(device)
-        if spker_embeds is not None:
-            spker_embeds = torch.from_numpy(spker_embeds).float().to(device)
-
-        return (
-            ids,
-            raw_texts,
-            speakers,
-            texts,
-            src_lens,
-            max_src_len,
-            mels,
-            mel_lens,
-            max_mel_len,
-            pitches,
-            energies,
-            durations,
-            spker_embeds,
-            ref_pitches,
-            ref_energies,
-        )
-
     if len(data) == 12:
         (
             ids,
@@ -90,9 +27,9 @@ def to_device(data, device):
             mels,
             mel_lens,
             max_mel_len,
-            spker_embeds,
-            ref_pitches,
-            ref_energies,
+            pitches,
+            energies,
+            durations,
         ) = data
 
         speakers = torch.from_numpy(speakers).long().to(device)
@@ -100,10 +37,9 @@ def to_device(data, device):
         src_lens = torch.from_numpy(src_lens).to(device)
         mels = torch.from_numpy(mels).float().to(device)
         mel_lens = torch.from_numpy(mel_lens).to(device)
-        if spker_embeds is not None:
-            spker_embeds = torch.from_numpy(spker_embeds).float().to(device)
-        ref_pitches = torch.from_numpy(ref_pitches).float().to(device)
-        ref_energies = torch.from_numpy(ref_energies).to(device)
+        pitches = torch.from_numpy(pitches).float().to(device)
+        energies = torch.from_numpy(energies).to(device)
+        durations = torch.from_numpy(durations).long().to(device)
 
         return (
             ids,
@@ -115,10 +51,19 @@ def to_device(data, device):
             mels,
             mel_lens,
             max_mel_len,
-            spker_embeds,
-            ref_pitches,
-            ref_energies,
+            pitches,
+            energies,
+            durations,
         )
+
+    if len(data) == 6:
+        (ids, raw_texts, speakers, texts, src_lens, max_src_len) = data
+
+        speakers = torch.from_numpy(speakers).long().to(device)
+        texts = torch.from_numpy(texts).long().to(device)
+        src_lens = torch.from_numpy(src_lens).to(device)
+
+        return (ids, raw_texts, speakers, texts, src_lens, max_src_len)
 
 
 def log(
@@ -322,26 +267,6 @@ def plot_mel(data, stats, titles):
         )
 
     return fig
-
-def plot_embedding(out_dir, embedding, embedding_speaker_id, gender_dict, filename='embedding.png'):
-    colors = 'r','b'
-    labels = 'Female','Male'
-
-    data_x = embedding
-    data_y = np.array([gender_dict[spk_id] == 'M' for spk_id in embedding_speaker_id], dtype=np.int)
-    tsne_model = TSNE(n_components=2, random_state=0, init='random')
-    tsne_all_data = tsne_model.fit_transform(data_x)
-    tsne_all_y_data = data_y
-
-    plt.figure(figsize=(10,10))
-    for i, (c, label) in enumerate(zip(colors, labels)):
-        plt.scatter(tsne_all_data[tsne_all_y_data==i,0], tsne_all_data[tsne_all_y_data==i,1], c=c, label=label, alpha=0.5)
-
-    plt.grid(True)
-    plt.legend(loc='upper left')
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, filename))
 
 
 def pad_1D(inputs, PAD=0):

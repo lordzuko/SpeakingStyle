@@ -20,7 +20,7 @@ def evaluate(model, step, configs, logger=None, vocoder=None, named_param=None):
 
     # Get dataset
     dataset = Dataset(
-        "val.txt", preprocess_config, model_config, train_config, sort=False, drop_last=False
+        "val.txt", preprocess_config, train_config, sort=False, drop_last=False
     )
     batch_size = train_config["optimizer"]["batch_size"]
     loader = DataLoader(
@@ -33,7 +33,7 @@ def evaluate(model, step, configs, logger=None, vocoder=None, named_param=None):
     )
 
     # Get loss function
-    Loss = FastSpeech2Loss(preprocess_config, model_config, train_config).to(device)
+    Loss = FastSpeech2Loss(preprocess_config, train_config).to(device)
 
     # Evaluation
     loss_sums = [0 for _ in range(6)]

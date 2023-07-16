@@ -25,7 +25,7 @@ def main(args, configs):
 
     # Get dataset
     dataset = Dataset(
-        "train.txt", preprocess_config, model_config, train_config, sort=True, drop_last=True
+        "train.txt", preprocess_config, train_config, sort=True, drop_last=True
     )
     batch_size = train_config["optimizer"]["batch_size"]
     group_size = 4  # Set this larger than 1 to enable sorting in Dataset
@@ -44,7 +44,7 @@ def main(args, configs):
     model, optimizer = get_model(args, configs, device, train=True)
     model = nn.DataParallel(model)
     num_param = get_param_num(model)
-    Loss = FastSpeech2Loss(preprocess_config, model_config, train_config=train_config).to(device)
+    Loss = FastSpeech2Loss(preprocess_config, train_config).to(device)
     print("Number of FastSpeech2 Parameters:", num_param)
 
     # Load vocoder
