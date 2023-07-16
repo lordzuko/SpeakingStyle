@@ -6,7 +6,7 @@ import yaml
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from utils.model import get_model, get_vocoder
+from utils.model import get_model, get_vocoder, get_named_param
 from utils.tools import to_device, log, synth_one_sample
 from model import FastSpeech2Loss
 from dataset import Dataset
@@ -15,12 +15,12 @@ from dataset import Dataset
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def evaluate(model, step, configs, logger=None, vocoder=None):
+def evaluate(model, step, configs, logger=None, vocoder=None, named_param=None):
     preprocess_config, model_config, train_config = configs
 
     # Get dataset
     dataset = Dataset(
-        "val.txt", preprocess_config, train_config, sort=False, drop_last=False
+        "val.txt", preprocess_config, model_config, train_config, sort=False, drop_last=False
     )
     batch_size = train_config["optimizer"]["batch_size"]
     loader = DataLoader(
@@ -28,10 +28,12 @@ def evaluate(model, step, configs, logger=None, vocoder=None):
         batch_size=batch_size,
         shuffle=False,
         collate_fn=dataset.collate_fn,
+        num_workers=40,
+        pin_memory=True
     )
 
     # Get loss function
-    Loss = FastSpeech2Loss(preprocess_config, model_config).to(device)
+    Loss = FastSpeech2Loss(preprocess_config, model_config, train_config).to(device)
 
     # Evaluation
     loss_sums = [0 for _ in range(6)]
@@ -43,8 +45,8 @@ def evaluate(model, step, configs, logger=None, vocoder=None):
                 output = model(*(batch[2:]))
 
                 # Cal Loss
-                losses = Loss(batch, output)
-
+                losses = Loss(batch, output, get_named_param(model, named_param))
+                losses = losses[:-1]
                 for i in range(len(losses)):
                     loss_sums[i] += losses[i].item() * len(batch[0])
 
