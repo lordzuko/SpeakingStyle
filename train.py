@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from utils.model import get_model, get_vocoder, get_param_num
+from utils.model import get_model, get_vocoder, get_param_num, get_named_param
 from utils.tools import to_device, log, synth_one_sample
 from model import FastSpeech2Loss
 from dataset import Dataset
@@ -25,7 +25,7 @@ def main(args, configs):
 
     # Get dataset
     dataset = Dataset(
-        "train.txt", preprocess_config, train_config, sort=True, drop_last=True
+        "train.txt", preprocess_config, model_config, train_config, sort=True, drop_last=True
     )
     batch_size = train_config["optimizer"]["batch_size"]
     group_size = 4  # Set this larger than 1 to enable sorting in Dataset
@@ -44,7 +44,7 @@ def main(args, configs):
     model, optimizer = get_model(args, configs, device, train=True)
     model = nn.DataParallel(model)
     num_param = get_param_num(model)
-    Loss = FastSpeech2Loss(preprocess_config, model_config).to(device)
+    Loss = FastSpeech2Loss(preprocess_config, model_config, train_config=train_config).to(device)
     print("Number of FastSpeech2 Parameters:", num_param)
 
     # Load vocoder
@@ -61,6 +61,7 @@ def main(args, configs):
     val_logger = SummaryWriter(val_log_path)
 
     # Training
+    named_params = ['s_gamma', 's_beta']
     step = args.restore_step + 1
     epoch = 1
     grad_acc_step = train_config["optimizer"]["grad_acc_step"]
@@ -85,7 +86,8 @@ def main(args, configs):
                 output = model(*(batch[2:]))
 
                 # Cal Loss
-                losses = Loss(batch, output)
+                losses = Loss(batch, output, named_param=get_named_param(model, named_params))
+                losses, lambdas = losses[:-1], losses[-1]
                 total_loss = losses[0]
 
                 # Backward
@@ -96,7 +98,7 @@ def main(args, configs):
                     nn.utils.clip_grad_norm_(model.parameters(), grad_clip_thresh)
 
                     # Update weights
-                    optimizer.step_and_update_lr()
+                    lr = optimizer.step_and_update_lr()
                     optimizer.zero_grad()
 
                 if step % log_step == 0:
@@ -111,7 +113,7 @@ def main(args, configs):
 
                     outer_bar.write(message1 + message2)
 
-                    log(train_logger, step, losses=losses)
+                    log(train_logger, step, lr=lr, losses=losses, lambdas=lambdas)
 
                 if step % synth_step == 0:
                     fig, wav_reconstruction, wav_prediction, tag = synth_one_sample(
@@ -144,7 +146,7 @@ def main(args, configs):
 
                 if step % val_step == 0:
                     model.eval()
-                    message = evaluate(model, step, configs, val_logger, vocoder)
+                    message = evaluate(model, step, configs, val_logger, vocoder, named_param=named_params)
                     with open(os.path.join(val_log_path, "log.txt"), "a") as f:
                         f.write(message + "\n")
                     outer_bar.write(message)

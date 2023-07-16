@@ -11,12 +11,14 @@ from utils.tools import pad_1D, pad_2D
 
 class Dataset(Dataset):
     def __init__(
-        self, filename, preprocess_config, train_config, sort=False, drop_last=False
+        self, filename, preprocess_config, model_config, train_config, sort=False, drop_last=False
     ):
         self.dataset_name = preprocess_config["dataset"]
         self.preprocessed_path = preprocess_config["path"]["preprocessed_path"]
         self.cleaners = preprocess_config["preprocessing"]["text"]["text_cleaners"]
         self.batch_size = train_config["optimizer"]["batch_size"]
+        self.load_spker_embed = model_config["multi_speaker"] \
+            and preprocess_config["preprocessing"]["speaker_embedder"] != 'none'
 
         self.basename, self.speaker, self.text, self.raw_text = self.process_meta(
             filename
@@ -46,19 +48,36 @@ class Dataset(Dataset):
             "pitch",
             "{}-pitch-{}.npy".format(speaker, basename),
         )
-        pitch = np.load(pitch_path)
+        pitch = np.load(pitch_path) # Phoneme Level
+        ref_pitch_path = os.path.join(
+            self.preprocessed_path,
+            "pitch_frame",
+            "{}-pitch-{}.npy".format(speaker, basename),
+        )
+        ref_pitch = np.load(ref_pitch_path) # Frame Level
         energy_path = os.path.join(
             self.preprocessed_path,
             "energy",
             "{}-energy-{}.npy".format(speaker, basename),
         )
-        energy = np.load(energy_path)
+        energy = np.load(energy_path) # Phoneme Level
+        ref_energy_path = os.path.join(
+            self.preprocessed_path,
+            "energy_frame",
+            "{}-energy-{}.npy".format(speaker, basename),
+        )
+        ref_energy = np.load(ref_energy_path) # Frame Level
         duration_path = os.path.join(
             self.preprocessed_path,
             "duration",
             "{}-duration-{}.npy".format(speaker, basename),
         )
         duration = np.load(duration_path)
+        spker_embed = np.load(os.path.join(
+            self.preprocessed_path,
+            "spker_embed",
+            "{}-spker_embed.npy".format(speaker),
+        )) if self.load_spker_embed else None
 
         sample = {
             "id": basename,
@@ -69,6 +88,9 @@ class Dataset(Dataset):
             "pitch": pitch,
             "energy": energy,
             "duration": duration,
+            "spker_embed": spker_embed,
+            "ref_pitch": ref_pitch,
+            "ref_energy": ref_energy,
         }
 
         return sample
@@ -96,8 +118,12 @@ class Dataset(Dataset):
         raw_texts = [data[idx]["raw_text"] for idx in idxs]
         mels = [data[idx]["mel"] for idx in idxs]
         pitches = [data[idx]["pitch"] for idx in idxs]
+        ref_pitches = [data[idx]["ref_pitch"] for idx in idxs]
         energies = [data[idx]["energy"] for idx in idxs]
+        ref_energies = [data[idx]["ref_energy"] for idx in idxs]
         durations = [data[idx]["duration"] for idx in idxs]
+        spker_embeds = np.concatenate(np.array([data[idx]["spker_embed"] for idx in idxs]), axis=0) \
+            if self.load_spker_embed else None
 
         text_lens = np.array([text.shape[0] for text in texts])
         mel_lens = np.array([mel.shape[0] for mel in mels])
@@ -106,7 +132,9 @@ class Dataset(Dataset):
         texts = pad_1D(texts)
         mels = pad_2D(mels)
         pitches = pad_1D(pitches)
+        ref_pitches = pad_1D(ref_pitches)
         energies = pad_1D(energies)
+        ref_energies = pad_1D(ref_energies)
         durations = pad_1D(durations)
 
         return (
@@ -122,6 +150,9 @@ class Dataset(Dataset):
             pitches,
             energies,
             durations,
+            spker_embeds,
+            ref_pitches,
+            ref_energies,
         )
 
     def collate_fn(self, data):
@@ -147,8 +178,11 @@ class Dataset(Dataset):
 
 
 class TextDataset(Dataset):
-    def __init__(self, filepath, preprocess_config):
+    def __init__(self, filepath, preprocess_config, model_config):
         self.cleaners = preprocess_config["preprocessing"]["text"]["text_cleaners"]
+        self.preprocessed_path = preprocess_config["path"]["preprocessed_path"]
+        self.load_spker_embed = model_config["multi_speaker"] \
+            and preprocess_config["preprocessing"]["speaker_embedder"] != 'none'
 
         self.basename, self.speaker, self.text, self.raw_text = self.process_meta(
             filepath
@@ -169,8 +203,31 @@ class TextDataset(Dataset):
         speaker_id = self.speaker_map[speaker]
         raw_text = self.raw_text[idx]
         phone = np.array(text_to_sequence(self.text[idx], self.cleaners))
+        mel_path = os.path.join(
+            self.preprocessed_path,
+            "mel",
+            "{}-mel-{}.npy".format(speaker, basename),
+        )
+        mel = np.load(mel_path)
+        ref_pitch_path = os.path.join(
+            self.preprocessed_path,
+            "pitch_frame",
+            "{}-pitch-{}.npy".format(speaker, basename),
+        )
+        ref_pitch = np.load(ref_pitch_path) # Frame Level
+        ref_energy_path = os.path.join(
+            self.preprocessed_path,
+            "energy_frame",
+            "{}-energy-{}.npy".format(speaker, basename),
+        )
+        ref_energy = np.load(ref_energy_path) # Frame Level
+        spker_embed = np.load(os.path.join(
+            self.preprocessed_path,
+            "spker_embed",
+            "{}-spker_embed.npy".format(speaker),
+        )) if self.load_spker_embed else None
 
-        return (basename, speaker_id, phone, raw_text)
+        return (basename, speaker_id, phone, raw_text, mel, spker_embed, ref_pitch, ref_energy)
 
     def process_meta(self, filename):
         with open(filename, "r", encoding="utf-8") as f:
@@ -191,65 +248,31 @@ class TextDataset(Dataset):
         speakers = np.array([d[1] for d in data])
         texts = [d[2] for d in data]
         raw_texts = [d[3] for d in data]
+        mels = [d[4] for d in data]
+        spker_embeds = np.concatenate(np.array([d[5] for d in data]), axis=0) \
+            if self.load_spker_embed else None
+        ref_pitches = [d[6] for d in data]
+        ref_energies = [d[7] for d in data]
+
         text_lens = np.array([text.shape[0] for text in texts])
+        mel_lens = np.array([mel.shape[0] for mel in mels])
 
         texts = pad_1D(texts)
+        mels = pad_2D(mels)
+        ref_pitches = pad_1D(ref_pitches)
+        ref_energies = pad_1D(ref_energies)
 
-        return ids, raw_texts, speakers, texts, text_lens, max(text_lens)
-
-
-if __name__ == "__main__":
-    # Test
-    import torch
-    import yaml
-    from torch.utils.data import DataLoader
-    from utils.utils import to_device
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    preprocess_config = yaml.load(
-        open("./config/LJSpeech/preprocess.yaml", "r"), Loader=yaml.FullLoader
-    )
-    train_config = yaml.load(
-        open("./config/LJSpeech/train.yaml", "r"), Loader=yaml.FullLoader
-    )
-
-    train_dataset = Dataset(
-        "train.txt", preprocess_config, train_config, sort=True, drop_last=True
-    )
-    val_dataset = Dataset(
-        "val.txt", preprocess_config, train_config, sort=False, drop_last=False
-    )
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=train_config["optimizer"]["batch_size"] * 4,
-        shuffle=True,
-        collate_fn=train_dataset.collate_fn,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=train_config["optimizer"]["batch_size"],
-        shuffle=False,
-        collate_fn=val_dataset.collate_fn,
-    )
-
-    n_batch = 0
-    for batchs in train_loader:
-        for batch in batchs:
-            to_device(batch, device)
-            n_batch += 1
-    print(
-        "Training set  with size {} is composed of {} batches.".format(
-            len(train_dataset), n_batch
+        return (
+            ids,
+            raw_texts,
+            speakers,
+            texts,
+            text_lens,
+            max(text_lens),
+            mels,
+            mel_lens,
+            max(mel_lens),
+            spker_embeds,
+            ref_pitches,
+            ref_energies,
         )
-    )
-
-    n_batch = 0
-    for batchs in val_loader:
-        for batch in batchs:
-            to_device(batch, device)
-            n_batch += 1
-    print(
-        "Validation set  with size {} is composed of {} batches.".format(
-            len(val_dataset), n_batch
-        )
-    )
