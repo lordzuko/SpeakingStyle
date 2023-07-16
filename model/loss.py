@@ -5,7 +5,7 @@ import torch.nn as nn
 class FastSpeech2Loss(nn.Module):
     """ FastSpeech2 Loss """
 
-    def __init__(self, preprocess_config, model_config, train_config):
+    def __init__(self, preprocess_config, train_config):
         super(FastSpeech2Loss, self).__init__()
         self.pitch_feature_level = preprocess_config["preprocessing"]["pitch"][
             "feature"
@@ -27,9 +27,6 @@ class FastSpeech2Loss(nn.Module):
             pitch_targets,
             energy_targets,
             duration_targets,
-            _,
-            _,
-            _
         ) = inputs[6:]
         (
             mel_predictions,
