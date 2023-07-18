@@ -11,7 +11,6 @@ from audio.audio_processing import (
     window_sumsquare,
 )
 
-
 class STFT(torch.nn.Module):
     """adapted from Prem Seetharaman's https://github.com/pseeth/pytorch-stft"""
 
@@ -64,9 +63,10 @@ class STFT(torch.nn.Module):
         )
         input_data = input_data.squeeze(1)
 
+        forward_basis = torch.autograd.Variable(self.forward_basis, requires_grad=False)
         forward_transform = F.conv1d(
-            input_data.cuda(),
-            torch.autograd.Variable(self.forward_basis, requires_grad=False).cuda(),
+            input_data.cuda() if torch.cuda.is_available() else input_data,
+            forward_basis.cuda() if torch.cuda.is_available() else forward_basis,
             stride=self.hop_length,
             padding=0,
         ).cpu()

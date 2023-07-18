@@ -84,7 +84,6 @@ def main(args, configs):
 
                 # Forward
                 output = model(*(batch[2:]))
-
                 # Cal Loss
                 losses = Loss(batch, output, named_param=get_named_param(model, named_params))
                 losses, lambdas = losses[:-1], losses[-1]

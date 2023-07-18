@@ -89,6 +89,7 @@ class Encoder(nn.Module):
             enc_output = self.src_word_emb(src_seq) + self.position_enc[
                 :, :max_len, :
             ].expand(batch_size, -1, -1)
+        
 
         for enc_layer in self.layer_stack:
             enc_output, enc_slf_attn = enc_layer(
@@ -140,7 +141,6 @@ class Decoder(nn.Module):
 
         dec_slf_attn_list = []
         batch_size, max_len = enc_seq.shape[0], enc_seq.shape[1]
-
         # -- Forward
         if not self.training and enc_seq.shape[1] > self.max_seq_len:
             # -- Prepare masks
@@ -152,7 +152,7 @@ class Decoder(nn.Module):
             )
         else:
             max_len = min(max_len, self.max_seq_len)
-
+    
             # -- Prepare masks
             slf_attn_mask = mask.unsqueeze(1).expand(-1, max_len, -1)
             dec_output = enc_seq[:, :max_len, :] + self.position_enc[
@@ -160,7 +160,6 @@ class Decoder(nn.Module):
             ].expand(batch_size, -1, -1)
             mask = mask[:, :max_len]
             slf_attn_mask = slf_attn_mask[:, :, :max_len]
-
         for dec_layer in self.layer_stack:
             dec_output, dec_slf_attn = dec_layer(
                 dec_output, gammas=gammas, betas=betas, mask=mask, slf_attn_mask=slf_attn_mask
