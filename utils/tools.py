@@ -56,18 +56,31 @@ def to_device(data, device):
             durations,
         )
 
-    if len(data) == 6:
-        (ids, raw_texts, speakers, texts, src_lens, max_src_len) = data
+    if len(data) == 9:
+        
+        (
+            ids,
+            raw_texts,
+            speakers,
+            texts,
+            src_lens,
+            max_src_len,
+            mels,
+            mel_lens,
+            max_mel_len
+        ) = data
 
         speakers = torch.from_numpy(speakers).long().to(device)
         texts = torch.from_numpy(texts).long().to(device)
         src_lens = torch.from_numpy(src_lens).to(device)
-
-        return (ids, raw_texts, speakers, texts, src_lens, max_src_len)
+        mels = torch.from_numpy(mels).to(device)
+        mel_lens = torch.from_numpy(mel_lens).to(device)
+    
+        return (ids, raw_texts, speakers, texts, src_lens, max_src_len, mels, mel_lens, max_mel_len)
 
 
 def log(
-    logger, step=None, losses=None, fig=None, audio=None, sampling_rate=22050, tag=""
+    logger, step=None, losses=None, lr=None, lambdas=None, fig=None, audio=None, sampling_rate=22050, tag=""
 ):
     if losses is not None:
         logger.add_scalar("Loss/total_loss", losses[0], step)
@@ -76,6 +89,12 @@ def log(
         logger.add_scalar("Loss/pitch_loss", losses[3], step)
         logger.add_scalar("Loss/energy_loss", losses[4], step)
         logger.add_scalar("Loss/duration_loss", losses[5], step)
+
+    if lr is not None:
+        logger.add_scalar("Weight/learning_rate", lr, step)
+
+    if lambdas is not None:
+        logger.add_scalar("Weight/lambda_f", lambdas, step)
 
     if fig is not None:
         logger.add_figure(tag, fig)

@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from transformer import Encoder, Decoder, PostNet
-from .modules import VarianceAdaptor
+from model.modules import VarianceAdaptor, ReferenceEncoder
 from utils.tools import get_mask_from_lengths
 
 
@@ -18,6 +18,7 @@ class FastSpeech2(nn.Module):
         self.model_config = model_config
 
         self.encoder = Encoder(model_config)
+        self.reference_encoder = ReferenceEncoder(preprocess_config, model_config)
         self.variance_adaptor = VarianceAdaptor(preprocess_config, model_config)
         self.decoder = Decoder(model_config)
         self.mel_linear = nn.Linear(
@@ -57,18 +58,25 @@ class FastSpeech2(nn.Module):
         d_control=1.0,
     ):
         src_masks = get_mask_from_lengths(src_lens, max_src_len)
+        
         mel_masks = (
             get_mask_from_lengths(mel_lens, max_mel_len)
             if mel_lens is not None
             else None
         )
 
-        output = self.encoder(texts, src_masks)
+        gammas, betas = self.reference_encoder(mels, max_mel_len, mel_masks)
+        
+        print(f"Gammas: {gammas.shape} Betas: {betas.shape}")
+        output = self.encoder(texts, src_masks, gammas, betas)
 
+        print(f"Encoder Output: {output.shape}")
         if self.speaker_emb is not None:
             output = output + self.speaker_emb(speakers).unsqueeze(1).expand(
                 -1, max_src_len, -1
             )
+            
+        print(f"Output before: {output.shape} mask before: {mel_masks.shape}")
 
         (
             output,
@@ -89,9 +97,11 @@ class FastSpeech2(nn.Module):
             p_control,
             e_control,
             d_control,
+            gammas,
+            betas
         )
-
-        output, mel_masks = self.decoder(output, mel_masks)
+        print("mask_after:", output.shape, mel_masks.shape)
+        output, mel_masks = self.decoder(output, mel_masks, gammas, betas)
         output = self.mel_linear(output)
 
         postnet_output = self.postnet(output) + output

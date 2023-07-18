@@ -10,6 +10,16 @@ transformer:
   encoder_dropout: 0.2
   decoder_dropout: 0.2
 
+reference_encoder:
+  encoder_layer: 4
+  encoder_head: 8
+  encoder_hidden: 256
+  conv_layer: 3
+  conv_filter_size: 1024
+  conv_kernel_size: 3
+  dropout: 0.1
+
+
 variance_predictor:
   filter_size: 256
   kernel_size: 3

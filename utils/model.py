@@ -8,7 +8,7 @@ import hifigan
 from model import FastSpeech2, ScheduledOptim
 
 
-def get_model(args, configs, device, train=False):
+def get_model(args, configs, device, train=False, ignore_layers=[]):
     (preprocess_config, model_config, train_config) = configs
 
     model = FastSpeech2(preprocess_config, model_config).to(device)
@@ -17,18 +17,26 @@ def get_model(args, configs, device, train=False):
             train_config["path"]["ckpt_path"],
             "{}.pth.tar".format(args.restore_step),
         )
+
         if torch.cuda.is_available():
-            ckpt = torch.load(ckpt_path)
+            model_dict = torch.load(ckpt_path)
         else:
-            ckpt = torch.load(ckpt_path, map_location=torch.device('cpu'))
-        model.load_state_dict(ckpt["model"])
+            model_dict = torch.load(ckpt_path, map_location=torch.device('cpu'))
+
+        for ignore_layer in ignore_layers:
+            model_dict = {k: v for k, v in model_dict.items()
+                        if ignore_layer not in k}
+            dummy_dict = model.state_dict()
+            dummy_dict.update(model_dict)
+            model_dict = dummy_dict
+        model.load_state_dict(model_dict, strict=False)
 
     if train:
         scheduled_optim = ScheduledOptim(
             model, train_config, model_config, args.restore_step
         )
         if args.restore_step:
-            scheduled_optim.load_state_dict(ckpt["optimizer"])
+            scheduled_optim.load_state_dict(model_dict["optimizer"])
         model.train()
         return model, scheduled_optim
 
@@ -40,6 +48,15 @@ def get_model(args, configs, device, train=False):
 def get_param_num(model):
     num_param = sum(param.numel() for param in model.parameters())
     return num_param
+
+
+def get_named_param(model, tags):
+    assert tags is not None
+    params = list()
+    for name, param in model.named_parameters():
+        if any([tag in name for tag in tags]):
+            params.append(param)
+    return torch.stack(params)
 
 
 def get_vocoder(config, device):

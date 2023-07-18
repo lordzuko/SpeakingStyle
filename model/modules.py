@@ -10,6 +10,9 @@ import numpy as np
 import torch.nn.functional as F
 
 from utils.tools import get_mask_from_lengths, pad
+from transformer.Models import get_sinusoid_encoding_table
+from transformer.Layers import ConvNorm, FFTBlock
+from model.blocks import LinearNorm, FiLM
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -77,8 +80,8 @@ class VarianceAdaptor(nn.Module):
             n_bins, model_config["transformer"]["encoder_hidden"]
         )
 
-    def get_pitch_embedding(self, x, target, mask, control):
-        prediction = self.pitch_predictor(x, mask)
+    def get_pitch_embedding(self, x, target, mask, control, gammas=None, betas=None):
+        prediction = self.pitch_predictor(x, mask, gammas, betas)
         if target is not None:
             embedding = self.pitch_embedding(torch.bucketize(target, self.pitch_bins))
         else:
@@ -88,8 +91,8 @@ class VarianceAdaptor(nn.Module):
             )
         return prediction, embedding
 
-    def get_energy_embedding(self, x, target, mask, control):
-        prediction = self.energy_predictor(x, mask)
+    def get_energy_embedding(self, x, target, mask, control, gammas=None, betas=None):
+        prediction = self.energy_predictor(x, mask, gammas, betas)
         if target is not None:
             embedding = self.energy_embedding(torch.bucketize(target, self.energy_bins))
         else:
@@ -111,9 +114,11 @@ class VarianceAdaptor(nn.Module):
         p_control=1.0,
         e_control=1.0,
         d_control=1.0,
+        gammas=None,
+        betas=None
     ):
 
-        log_duration_prediction = self.duration_predictor(x, src_mask)
+        log_duration_prediction = self.duration_predictor(x, src_mask, gammas, betas)
         if self.pitch_feature_level == "phoneme_level":
             pitch_prediction, pitch_embedding = self.get_pitch_embedding(
                 x, pitch_target, src_mask, p_control
@@ -133,7 +138,9 @@ class VarianceAdaptor(nn.Module):
                 (torch.round(torch.exp(log_duration_prediction) - 1) * d_control),
                 min=0,
             )
-            x, mel_len = self.length_regulator(x, duration_rounded, max_len)
+            
+            x, mel_len = self.length_regulator(x, duration_rounded, None)
+            mel_len = duration_rounded.sum(-1).int().to(device)
             mel_mask = get_mask_from_lengths(mel_len)
 
         if self.pitch_feature_level == "frame_level":
@@ -236,11 +243,13 @@ class VariancePredictor(nn.Module):
                 ]
             )
         )
-
+        self.film = FiLM()
         self.linear_layer = nn.Linear(self.conv_output_size, 1)
 
-    def forward(self, encoder_output, mask):
+    def forward(self, encoder_output, mask, gammas=None, betas=None):
         out = self.conv_layer(encoder_output)
+        if (gammas is not None ) and (betas is not None):
+                out = self.film(out, gammas, betas)
         out = self.linear_layer(out)
         out = out.squeeze(-1)
 
@@ -294,3 +303,104 @@ class Conv(nn.Module):
         x = x.contiguous().transpose(1, 2)
 
         return x
+    
+class ReferenceEncoder(nn.Module):
+    """ Reference Encoder """
+
+    def __init__(self, preprocess_config, model_config):
+        super(ReferenceEncoder, self).__init__()
+
+        self.max_seq_len = model_config["max_seq_len"] + 1
+        n_conv_layers = model_config["reference_encoder"]["conv_layer"]
+        kernel_size = model_config["reference_encoder"]["conv_kernel_size"]
+        n_layers = model_config["reference_encoder"]["encoder_layer"]
+        n_head = model_config["reference_encoder"]["encoder_head"]
+        self.d_model = model_config["reference_encoder"]["encoder_hidden"]
+        n_mel_channels = preprocess_config["preprocessing"]["mel"]["n_mel_channels"]
+        d_k = d_v = (self.d_model // n_head)
+        self.filter_size = model_config["reference_encoder"]["conv_filter_size"]
+        dropout = model_config["reference_encoder"]["dropout"]
+
+        self.layer_stack = nn.ModuleList(
+            [
+                nn.Sequential(
+                    ConvNorm(
+                            n_mel_channels if i == 0 else self.filter_size,
+                            self.filter_size,
+                            kernel_size=kernel_size,
+                            stride=1,
+                            padding=(kernel_size - 1) // 2,
+                            dilation=1,
+                            transform=True,
+                        ),
+                    nn.ReLU(),
+                    nn.LayerNorm(self.filter_size),
+                    nn.Dropout(dropout),
+                )
+                for i in range(n_conv_layers)
+            ]
+        )
+
+        self.position_enc = nn.Parameter(
+            get_sinusoid_encoding_table(self.max_seq_len, self.filter_size).unsqueeze(0),
+            requires_grad=False,
+        )
+
+        self.fftb_linear = LinearNorm(self.filter_size, self.d_model)
+        self.fftb_stack = nn.ModuleList(
+            [
+                FFTBlock(
+                    self.d_model, n_head, d_k, d_v, self.filter_size, [kernel_size, kernel_size], dropout=dropout, film=False
+                )
+                for _ in range(n_layers)
+            ]
+        )
+
+        self.feature_wise_affine = LinearNorm(self.d_model, 2 * self.d_model)
+
+    def forward(self, mel, max_len, mask):
+
+        batch_size = mel.shape[0]
+
+        # -- Prepare Input
+        enc_seq = mel
+        for enc_layer in self.layer_stack:
+            enc_seq = enc_layer(enc_seq)
+
+        if mask is not None:
+            enc_seq = enc_seq.masked_fill(mask.unsqueeze(-1), 0.0)
+
+        # -- Forward
+        if not self.training and enc_seq.shape[1] > self.max_seq_len:
+            slf_attn_mask = mask.unsqueeze(1).expand(-1, max_len, -1)
+            enc_seq = enc_seq + get_sinusoid_encoding_table(
+                enc_seq.shape[1], self.filter_size
+            )[: enc_seq.shape[1], :].unsqueeze(0).expand(batch_size, -1, -1).to(
+                enc_seq.device
+            )
+        else:
+            max_len = min(max_len, self.max_seq_len)
+
+            slf_attn_mask = mask.unsqueeze(1).expand(-1, max_len, -1)
+            enc_seq = enc_seq[:, :max_len, :] + self.position_enc[
+                :, :max_len, :
+            ].expand(batch_size, -1, -1)
+            mask = mask[:, :max_len]
+            slf_attn_mask = slf_attn_mask[:, :, :max_len]
+
+        enc_seq = self.fftb_linear(enc_seq)
+        for fftb_layer in self.fftb_stack:
+            enc_seq, _ = fftb_layer(
+                enc_seq, mask=mask, slf_attn_mask=slf_attn_mask
+            )
+
+        # -- Avg Pooling
+        prosody_vector = enc_seq.mean(dim=1, keepdim=True) # [B, 1, H]
+
+
+        # -- Feature-wise Affine
+        gammas, betas = torch.split(
+            self.feature_wise_affine(prosody_vector), self.d_model, dim=-1
+        )
+
+        return gammas, betas

@@ -1,11 +1,16 @@
 import re
-from tqdm import tqdm
+import os
+import json
 import argparse
 from string import punctuation
 
 import torch
 import yaml
 import numpy as np
+
+import librosa
+import pyworld as pw
+import audio as Audio
 from torch.utils.data import DataLoader
 from g2p_en import G2p
 from pypinyin import pinyin, Style
@@ -85,11 +90,48 @@ def preprocess_mandarin(text, preprocess_config):
     return np.array(sequence)
 
 
-def synthesize(model, step, configs, vocoder, batchs, control_values):
+def get_audio(preprocess_config, wav_path):
+
+    hop_length = preprocess_config["preprocessing"]["stft"]["hop_length"]
+    sampling_rate = preprocess_config["preprocessing"]["audio"]["sampling_rate"]
+    STFT = Audio.stft.TacotronSTFT(
+        preprocess_config["preprocessing"]["stft"]["filter_length"],
+        hop_length,
+        preprocess_config["preprocessing"]["stft"]["win_length"],
+        preprocess_config["preprocessing"]["mel"]["n_mel_channels"],
+        sampling_rate,
+        preprocess_config["preprocessing"]["mel"]["mel_fmin"],
+        preprocess_config["preprocessing"]["mel"]["mel_fmax"],
+    )
+
+    # Read wav files
+    wav, _ = librosa.load(wav_path)
+    wav = wav.astype(np.float32)
+
+    # Compute fundamental frequency
+    pitch, t = pw.dio(
+        wav.astype(np.float64),
+        sampling_rate,
+        frame_period=hop_length / sampling_rate * 1000,
+    )
+    pitch = pw.stonemask(wav.astype(np.float64), pitch, t, sampling_rate)
+
+    # Compute mel-scale spectrogram and energy
+    mel_spectrogram, energy = Audio.tools.get_mel_from_wav(wav, STFT)
+
+    mels = mel_spectrogram.T[None]
+    mel_lens = np.array([len(mels[0])])
+
+    energy = energy.astype(np.float32)
+
+    return mels, mel_lens, pitch[None], energy[None]
+
+
+def synthesize(model, args, configs, vocoder, batchs, control_values):
     preprocess_config, model_config, train_config = configs
     pitch_control, energy_control, duration_control = control_values
 
-    for batch in tqdm(batchs, total=len(batchs), desc="batches:> "):
+    for batch in batchs:
         batch = to_device(batch, device)
         with torch.no_grad():
             # Forward
@@ -106,6 +148,7 @@ def synthesize(model, step, configs, vocoder, batchs, control_values):
                 model_config,
                 preprocess_config,
                 train_config["path"]["result_path"],
+                args,
             )
 
 
@@ -133,24 +176,23 @@ if __name__ == "__main__":
         help="raw text to synthesize, for single-sentence mode only",
     )
     parser.add_argument(
+        "--ref_audio",
+        type=str,
+        default=None,
+        help="reference audio path to extract the speech style, for single-sentence mode only",
+    )
+    parser.add_argument(
         "--speaker_id",
         type=int,
         default=0,
         help="speaker ID for multi-speaker synthesis, for single-sentence mode only",
     )
-    parser.add_argument(
-        "-p",
-        "--preprocess_config",
-        type=str,
-        required=True,
-        help="path to preprocess.yaml",
-    )
-    parser.add_argument(
-        "-m", "--model_config", type=str, required=True, help="path to model.yaml"
-    )
-    parser.add_argument(
-        "-t", "--train_config", type=str, required=True, help="path to train.yaml"
-    )
+    # parser.add_argument(
+    #     "--dataset",
+    #     type=str,
+    #     required=True,
+    #     help="name of dataset",
+    # )
     parser.add_argument(
         "--pitch_control",
         type=float,
@@ -169,6 +211,19 @@ if __name__ == "__main__":
         default=1.0,
         help="control the speed of the whole utterance, larger value for slower speaking rate",
     )
+    parser.add_argument(
+        "-p",
+        "--preprocess_config",
+        type=str,
+        required=True,
+        help="path to preprocess.yaml",
+    )
+    parser.add_argument(
+        "-m", "--model_config", type=str, required=True, help="path to model.yaml"
+    )
+    parser.add_argument(
+        "-t", "--train_config", type=str, required=True, help="path to train.yaml"
+    )
     args = parser.parse_args()
 
     # Check source texts
@@ -178,6 +233,7 @@ if __name__ == "__main__":
         assert args.source is None and args.text is not None
 
     # Read Config
+        # Read Config
     preprocess_config = yaml.load(
         open(args.preprocess_config, "r"), Loader=yaml.FullLoader
     )
@@ -185,34 +241,51 @@ if __name__ == "__main__":
     train_config = yaml.load(open(args.train_config, "r"), Loader=yaml.FullLoader)
     configs = (preprocess_config, model_config, train_config)
 
+    os.makedirs(
+        os.path.join(train_config["path"]["result_path"], str(args.restore_step)), exist_ok=True)
+
     # Get model
-    print("Loading Model...")
-    model = get_model(args, configs, device, train=False)
-    print("Model Loaded")
+    print("loading model")
+    model = get_model(args, configs, device, train=False,
+                      ignore_layers=train_config["ignore_layers"])
+    print("model loaded")
     # Load vocoder
-    print("Loading Vocoder...")
+    print("loading vocoder")
     vocoder = get_vocoder(model_config, device)
-    print("Vocoder Loaded")
-    
+    print("vocoder loaded")
     # Preprocess texts
     if args.mode == "batch":
         # Get dataset
-        dataset = TextDataset(args.source, preprocess_config)
+        dataset = TextDataset(args.source, preprocess_config, model_config)
         batchs = DataLoader(
             dataset,
             batch_size=8,
             collate_fn=dataset.collate_fn,
         )
     if args.mode == "single":
+        print("single mode")
         ids = raw_texts = [args.text[:100]]
-        speakers = np.array([args.speaker_id])
+
+        # Speaker Info
+        load_spker_embed = model_config["multi_speaker"] \
+            and preprocess_config["preprocessing"]["speaker_embedder"] != 'none'
+        with open(os.path.join(preprocess_config["path"]["preprocessed_path"], "speakers.json")) as f:
+            speaker_map = json.load(f)
+        speakers = np.array([speaker_map[args.speaker_id]]) if model_config["multi_speaker"] else np.array([0]) # single speaker is allocated 0
+        spker_embeds = np.load(os.path.join(
+            preprocess_config["path"]["preprocessed_path"],
+            "spker_embed",
+            "{}-spker_embed.npy".format(args.speaker_id),
+        )) if load_spker_embed else None
+
         if preprocess_config["preprocessing"]["text"]["language"] == "en":
             texts = np.array([preprocess_english(args.text, preprocess_config)])
         elif preprocess_config["preprocessing"]["text"]["language"] == "zh":
             texts = np.array([preprocess_mandarin(args.text, preprocess_config)])
+        mels, mel_lens, ref_pitches, ref_energies = get_audio(preprocess_config, args.ref_audio)
         text_lens = np.array([len(texts[0])])
-        batchs = [(ids, raw_texts, speakers, texts, text_lens, max(text_lens))]
+        batchs = [(ids, raw_texts, speakers, texts, text_lens, max(text_lens), mels, mel_lens, max(mel_lens))]
 
-    control_values = args.pitch_control, args.energy_control, args.duration_control        
-    print("Synthesizing ...")
-    synthesize(model, args.restore_step, configs, vocoder, batchs, control_values)
+    control_values = args.pitch_control, args.energy_control, args.duration_control
+
+    synthesize(model, args, configs, vocoder, batchs, control_values)

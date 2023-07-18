@@ -5,7 +5,7 @@ import torch.nn as nn
 class FastSpeech2Loss(nn.Module):
     """ FastSpeech2 Loss """
 
-    def __init__(self, preprocess_config, model_config):
+    def __init__(self, preprocess_config, train_config):
         super(FastSpeech2Loss, self).__init__()
         self.pitch_feature_level = preprocess_config["preprocessing"]["pitch"][
             "feature"
@@ -15,8 +15,11 @@ class FastSpeech2Loss(nn.Module):
         ]
         self.mse_loss = nn.MSELoss()
         self.mae_loss = nn.L1Loss()
+        
+        self.lambda_f = train_config["loss"]["lambda_f"] if train_config.get("loss") else 0.0
 
-    def forward(self, inputs, predictions):
+
+    def forward(self, inputs, predictions, named_param):
         (
             mel_targets,
             _,
@@ -78,8 +81,11 @@ class FastSpeech2Loss(nn.Module):
         energy_loss = self.mse_loss(energy_predictions, energy_targets)
         duration_loss = self.mse_loss(log_duration_predictions, log_duration_targets)
 
+        scale_reg = torch.sum(torch.square(named_param)) # L2-norm of the scaling parameters
+
+        # this will be done when we want to regularize the gamma, beta params
         total_loss = (
-            mel_loss + postnet_mel_loss + duration_loss + pitch_loss + energy_loss
+            mel_loss + postnet_mel_loss + duration_loss + pitch_loss + energy_loss + self.lambda_f * scale_reg
         )
 
         return (
@@ -89,4 +95,5 @@ class FastSpeech2Loss(nn.Module):
             pitch_loss,
             energy_loss,
             duration_loss,
+            self.lambda_f
         )
