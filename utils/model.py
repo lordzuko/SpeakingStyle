@@ -17,7 +17,12 @@ def get_model(args, configs, device, train=False, ignore_layers=[]):
             train_config["path"]["ckpt_path"],
             "{}.pth.tar".format(args.restore_step),
         )
-        model_dict = torch.load(ckpt_path)['model']
+
+        if torch.cuda.is_available():
+            model_dict = torch.load(ckpt_path)
+        else:
+            model_dict = torch.load(ckpt_path, map_location=torch.device('cpu'))
+
         for ignore_layer in ignore_layers:
             model_dict = {k: v for k, v in model_dict.items()
                         if ignore_layer not in k}
@@ -31,7 +36,7 @@ def get_model(args, configs, device, train=False, ignore_layers=[]):
             model, train_config, model_config, args.restore_step
         )
         if args.restore_step:
-            scheduled_optim.load_state_dict(ckpt["optimizer"])
+            scheduled_optim.load_state_dict(model_dict["optimizer"])
         model.train()
         return model, scheduled_optim
 

@@ -7,13 +7,14 @@
 # ====================
 # Options for sbatch
 # ====================
-#SBATCH --account=tc046
-#SBATCH --job-name=style_tts
+#SBATCH --account=tc046-hmaurya
+#SBATCH --job-name=ref_encoder
 #SBATCH --partition=gpu
 #SBATCH --qos=gpu
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCh --nodes=1
-#SBATCH --time=00:20:00
+#SBATCH --time=24:00:00
+#SBATCH --output=/work/tc046/tc046/%u/work/SpeakingStyle/logs/slurm_logs/slurm-%A_output.out
 
 
 # =====================

@@ -67,14 +67,16 @@ class FastSpeech2(nn.Module):
 
         gammas, betas = self.reference_encoder(mels, max_mel_len, mel_masks)
         
+        print(f"Gammas: {gammas.shape} Betas: {betas.shape}")
         output = self.encoder(texts, src_masks, gammas, betas)
 
+        print(f"Encoder Output: {output.shape}")
         if self.speaker_emb is not None:
             output = output + self.speaker_emb(speakers).unsqueeze(1).expand(
                 -1, max_src_len, -1
             )
             
-        
+        print(f"Output before: {output.shape} mask before: {mel_masks.shape}")
 
         (
             output,
@@ -98,7 +100,7 @@ class FastSpeech2(nn.Module):
             gammas,
             betas
         )
-
+        print("mask_after:", output.shape, mel_masks.shape)
         output, mel_masks = self.decoder(output, mel_masks, gammas, betas)
         output = self.mel_linear(output)
 
