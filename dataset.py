@@ -147,7 +147,7 @@ class Dataset(Dataset):
 
 
 class TextDataset(Dataset):
-    def __init__(self, filepath, preprocess_config):
+    def __init__(self, filepath, preprocess_config, train_config):
         self.cleaners = preprocess_config["preprocessing"]["text"]["text_cleaners"]
 
         self.basename, self.speaker, self.text, self.raw_text = self.process_meta(
@@ -159,6 +159,7 @@ class TextDataset(Dataset):
             )
         ) as f:
             self.speaker_map = json.load(f)
+        self.preprocessed_path = preprocess_config["path"]["preprocessed_path"]
 
     def __len__(self):
         return len(self.text)
@@ -169,8 +170,13 @@ class TextDataset(Dataset):
         speaker_id = self.speaker_map[speaker]
         raw_text = self.raw_text[idx]
         phone = np.array(text_to_sequence(self.text[idx], self.cleaners))
-
-        return (basename, speaker_id, phone, raw_text)
+        mel_path = os.path.join(
+            self.preprocessed_path,
+            "mel",
+            "{}-mel-{}.npy".format(speaker, basename),
+        )
+        mel = np.load(mel_path)
+        return (basename, speaker_id, phone, raw_text, mel)
 
     def process_meta(self, filename):
         with open(filename, "r", encoding="utf-8") as f:
@@ -187,6 +193,7 @@ class TextDataset(Dataset):
             return name, speaker, text, raw_text
 
     def collate_fn(self, data):
+        print(data)
         ids = [d[0] for d in data]
         speakers = np.array([d[1] for d in data])
         texts = [d[2] for d in data]
@@ -194,8 +201,21 @@ class TextDataset(Dataset):
         text_lens = np.array([text.shape[0] for text in texts])
 
         texts = pad_1D(texts)
+        mels = [d[4] for d in data]
+        mel_lens = np.array([mel.shape[0] for mel in mels])
+        mels = pad_2D(mels)
 
-        return ids, raw_texts, speakers, texts, text_lens, max(text_lens)
+        return (
+            ids,
+            raw_texts,
+            speakers,
+            texts,
+            text_lens,
+            max(text_lens),
+            mels,
+            mel_lens,
+            max(mel_lens)
+        )
 
 
 if __name__ == "__main__":
@@ -203,7 +223,7 @@ if __name__ == "__main__":
     import torch
     import yaml
     from torch.utils.data import DataLoader
-    from utils.utils import to_device
+    from utils.tools import to_device
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     preprocess_config = yaml.load(

@@ -92,14 +92,12 @@ def preprocess_mandarin(text, preprocess_config):
 
 def get_audio(preprocess_config, wav_path):
 
-    hop_length = preprocess_config["preprocessing"]["stft"]["hop_length"]
-    sampling_rate = preprocess_config["preprocessing"]["audio"]["sampling_rate"]
     STFT = Audio.stft.TacotronSTFT(
         preprocess_config["preprocessing"]["stft"]["filter_length"],
-        hop_length,
+        preprocess_config["preprocessing"]["stft"]["hop_length"],
         preprocess_config["preprocessing"]["stft"]["win_length"],
         preprocess_config["preprocessing"]["mel"]["n_mel_channels"],
-        sampling_rate,
+        preprocess_config["preprocessing"]["audio"]["sampling_rate"],
         preprocess_config["preprocessing"]["mel"]["mel_fmin"],
         preprocess_config["preprocessing"]["mel"]["mel_fmax"],
     )
@@ -109,22 +107,22 @@ def get_audio(preprocess_config, wav_path):
     wav = wav.astype(np.float32)
 
     # Compute fundamental frequency
-    pitch, t = pw.dio(
-        wav.astype(np.float64),
-        sampling_rate,
-        frame_period=hop_length / sampling_rate * 1000,
-    )
-    pitch = pw.stonemask(wav.astype(np.float64), pitch, t, sampling_rate)
+    # pitch, t = pw.dio(
+    #     wav.astype(np.float64),
+    #     sampling_rate,
+    #     frame_period=hop_length / sampling_rate * 1000,
+    # )
+    # pitch = pw.stonemask(wav.astype(np.float64), pitch, t, sampling_rate)
 
     # Compute mel-scale spectrogram and energy
     mel_spectrogram, energy = Audio.tools.get_mel_from_wav(wav, STFT)
-
     mels = mel_spectrogram.T[None]
     mel_lens = np.array([len(mels[0])])
 
-    energy = energy.astype(np.float32)
+    # energy = energy.astype(np.float32)
 
-    return mels, mel_lens, pitch[None], energy[None]
+    # return mels, mel_lens, pitch[None], energy[None]
+    return mels, mel_lens
 
 
 def synthesize(model, args, configs, vocoder, batchs, control_values):
@@ -282,8 +280,11 @@ if __name__ == "__main__":
             texts = np.array([preprocess_english(args.text, preprocess_config)])
         elif preprocess_config["preprocessing"]["text"]["language"] == "zh":
             texts = np.array([preprocess_mandarin(args.text, preprocess_config)])
-        mels, mel_lens, ref_pitches, ref_energies = get_audio(preprocess_config, args.ref_audio)
+        # mels, mel_lens, ref_pitches, ref_energies = get_audio(preprocess_config, args.ref_audio)
+        mels, mel_lens = get_audio(preprocess_config, args.ref_audio)
+        print(mels.shape, mel_lens)
         text_lens = np.array([len(texts[0])])
+        print(texts, text_lens)
         batchs = [(ids, raw_texts, speakers, texts, text_lens, max(text_lens), mels, mel_lens, max(mel_lens))]
 
     control_values = args.pitch_control, args.energy_control, args.duration_control
